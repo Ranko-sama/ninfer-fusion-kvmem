@@ -6,7 +6,11 @@ namespace ninfer::ops::detail::unified {
 Bf16Launch select_bf16_n256_k5120(std::int32_t tokens) {
     if (tokens <= 76)
         return launch_bf16_sliced_k_mma<
+#if defined(NINFER_SM75)
+            Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 8, 8>, 5120>>;
+#else
             Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 8, 16>, 5120>>;
+#endif
     if (tokens <= 160)
         return launch_bf16_sliced_k_mma<
             Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 16, 8>, 5120>>;

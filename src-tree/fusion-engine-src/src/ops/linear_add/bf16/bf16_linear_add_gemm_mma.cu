@@ -65,7 +65,12 @@ void launch_variant(const Tensor& x, const Weight& weight, Tensor& residual, cud
 
 void bf16_linear_add_aggregate_mma_launch(const Tensor& x, const Weight& weight, Tensor& residual,
                                           cudaStream_t stream) {
-    using UpTo32 = Bf16MmaSchedule<32, 32, 256, 16, 8, 3, 1, Cache::cg, Cache::cg,
+#if defined(NINFER_SM75)
+    constexpr int stages = 2; // 64 KiB instead of the sm_86 tile's 96 KiB.
+#else
+    constexpr int stages = 3;
+#endif
+    using UpTo32 = Bf16MmaSchedule<32, 32, 256, 16, 8, stages, 1, Cache::cg, Cache::cg,
                                    Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>;
     using UpTo48 = Bf16MmaSchedule<32, 32, 192, 16, 8, 2, 2, Cache::cg, Cache::ca,
                                    Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>;

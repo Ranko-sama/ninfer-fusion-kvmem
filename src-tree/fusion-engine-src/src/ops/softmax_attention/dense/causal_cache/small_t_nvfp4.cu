@@ -22,7 +22,12 @@ void launch_nvfp4_partial(const Tensor& q, CacheInput input, const Tensor& posit
     constexpr int RowCount             = TokenTile * Geometry::GroupSize;
     constexpr int RowTiles             = (RowCount + 15) / 16;
     constexpr int Warps                = RowTiles == 3 ? 12 : 8;
+#if defined(NINFER_SM75)
+    // The widest query tile plus its KV arena must fit Turing's 64 KiB block limit.
+    constexpr int KeyBlock             = 16;
+#else
     constexpr int KeyBlock             = 32;
+#endif
     constexpr int MinBlocks            = RowTiles <= 2 ? 2 : 1;
     constexpr std::size_t DynamicBytes = (RowTiles <= 2 ? 3u : 5u) * KeyBlock * kCausalHeadDim;
     using KernelInput                  = CacheInput;

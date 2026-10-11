@@ -32,7 +32,11 @@ inline constexpr int kCausalPromptFp8Threads       = kCausalPromptFp8Warps * 32;
 // small_t_fp8.cu; see its comment). Br=Bc=32 fits comfortably (~68KiB) at the cost of more,
 // smaller row/key tiles.
 inline constexpr int kCausalPromptFp8Br            = 32;
+#if defined(NINFER_SM75)
+inline constexpr int kCausalPromptFp8Bc            = 16;
+#else
 inline constexpr int kCausalPromptFp8Bc            = 32;
+#endif
 inline constexpr int kCausalPromptFp8RowTiles      = kCausalPromptFp8Br / 16;
 inline constexpr int kCausalPromptFp8ProducerWarps = 2 * kCausalPromptFp8RowTiles;
 inline constexpr int kCausalPromptFp8DConsumers = kCausalPromptFp8Warps / kCausalPromptFp8RowTiles;
@@ -57,6 +61,9 @@ inline constexpr int kCausalPromptFp8SmemBytes =
     kCausalPromptFp8ScaleBytes + kCausalPromptFp8StatsBytes;
 
 static_assert(kCausalPromptFp8DConsumers == 8);
+#if defined(NINFER_SM75)
+static_assert(kCausalPromptFp8SmemBytes <= 64 * 1024);
+#endif
 
 template <typename Geometry, typename Metadata>
 __global__ __maxnreg__(120) void causal_attention_prompt_fp8_kernel(

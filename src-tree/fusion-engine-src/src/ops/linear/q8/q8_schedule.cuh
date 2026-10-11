@@ -124,25 +124,49 @@ struct Q8A16SlicedKMmaSchedule {
     static constexpr int kTokenCapacity     = TokenCapacity;
     static constexpr int kStaticK           = StaticK;
     static constexpr bool kExactTokens      = ExactTokens;
-    static constexpr int kKWarps            = KWarps;
+#if defined(NINFER_SM75)
+    // Preserve the token tile and exact group-scale math. Drop a staging buffer
+    // first, then split K across fewer warps if a single buffer still exceeds
+    // Turing's 64 KiB block budget.
+    static constexpr int kStages =
+        Stages * (16 * KWarps * 64 + KWarps * BlockTokens * 64 * 2 +
+                  16 * (ScaleAccess == Q8ScaleAccess::Shared ? KWarps * 4 : 1)) > 64 * 1024
+            ? 1 : Stages;
+    static constexpr int kKWarps = [] {
+        for (int warps = KWarps; warps >= 2; warps /= 2) {
+            const int block_k = warps * 64;
+            const int staging = kStages * (16 * block_k + warps * BlockTokens * 64 * 2 +
+                16 * (ScaleAccess == Q8ScaleAccess::Shared ? block_k / 16 : 1));
+            const int partial = warps * (BlockTokens / 8) * 32 * 16;
+            if (staging <= 64 * 1024 && partial <= 64 * 1024) { return warps; }
+        }
+        return 2;
+    }();
+#else
     static constexpr int kStages            = Stages;
+    static constexpr int kKWarps            = KWarps;
+#endif
     static constexpr int kMinBlocksPerSm    = MinBlocksPerSm;
     static constexpr auto kScaleAccess      = ScaleAccess;
     static constexpr auto kActivationCache  = ActivationCache;
     static constexpr auto kWeightCache      = WeightCache;
     static constexpr auto kActivationStage  = ActivationStage;
-    static constexpr int kThreads           = KWarps * 32;
+    static constexpr int kThreads           = kKWarps * 32;
     static constexpr int kWarpK             = 64;
-    static constexpr int kBlockK            = KWarps * kWarpK;
-    static constexpr int kRowsPerLoaderWarp = kBlockRows / KWarps;
+    static constexpr int kBlockK            = kKWarps * kWarpK;
+    static constexpr int kRowsPerLoaderWarp = kBlockRows / kKWarps;
     static constexpr int kScaleBytesPerRow  = kBlockK / 16;
     static constexpr int kStagingBytes =
-        Stages * (kBlockRows * kBlockK + KWarps * BlockTokens * kWarpK * 2 +
+        kStages * (kBlockRows * kBlockK + kKWarps * BlockTokens * kWarpK * 2 +
                   kBlockRows * (ScaleAccess == Q8ScaleAccess::Shared ? kScaleBytesPerRow : 1));
-    static constexpr int kPartialBytes = KWarps * (BlockTokens / 8) * 32 * 16;
+    static constexpr int kPartialBytes = kKWarps * (BlockTokens / 8) * 32 * 16;
     static constexpr int kSharedBytes =
         kStagingBytes > kPartialBytes ? kStagingBytes : kPartialBytes;
+#if defined(NINFER_SM75)
+    static_assert(kSharedBytes <= 64 * 1024);
+#else
     static_assert(kSharedBytes <= 99 * 1024);
+#endif
 };
 
 template <int BlockTokens, int KWarps, int TokenGroups, int Stages, int MinBlocksPerSm,
@@ -157,20 +181,39 @@ struct Q8A16GroupedSlicedKMmaSchedule {
     static_assert(StaticK == 0 || (StaticK > 0 && StaticK % (KWarps * 64) == 0));
     static constexpr int kBlockRows        = 16;
     static constexpr int kBlockTokens      = BlockTokens;
+#if defined(NINFER_SM75)
+    static constexpr int kKWarps = [] {
+        for (int warps = KWarps; warps >= 2; warps /= 2) {
+            if (16 * warps * 64 + warps * BlockTokens * 64 * 2 <= 64 * 1024) {
+                return warps;
+            }
+        }
+        return 2;
+    }();
+#else
     static constexpr int kKWarps           = KWarps;
+#endif
     static constexpr int kTokenGroups      = TokenGroups;
     static constexpr int kWarpTokens       = BlockTokens / TokenGroups;
-    static constexpr int kWarps            = KWarps * TokenGroups;
+    static constexpr int kWarps            = kKWarps * TokenGroups;
     static constexpr int kThreads          = kWarps * 32;
-    static constexpr int kBlockK           = KWarps * 64;
+    static constexpr int kBlockK           = kKWarps * 64;
+    static constexpr int kStageBytes       = 16 * kBlockK + kWarps * kWarpTokens * 64 * 2;
+#if defined(NINFER_SM75)
+    static constexpr int kStages           = Stages * kStageBytes > 64 * 1024 ? 1 : Stages;
+#else
     static constexpr int kStages           = Stages;
+#endif
     static constexpr int kMinBlocksPerSm   = MinBlocksPerSm;
     static constexpr int kStaticK          = StaticK;
     static constexpr auto kWeightCache     = WeightCache;
     static constexpr auto kActivationCache = ActivationCache;
     static constexpr bool kTiledTokens     = TiledTokens;
     static constexpr bool kReadOnlyScales  = ReadOnlyScales;
-    static constexpr int kSharedBytes = Stages * (16 * kBlockK + kWarps * kWarpTokens * 64 * 2);
+    static constexpr int kSharedBytes = kStages * kStageBytes;
+#if defined(NINFER_SM75)
+    static_assert(kSharedBytes <= 64 * 1024);
+#endif
     static_assert(kThreads <= 1024 && kSharedBytes <= 99 * 1024);
 };
 

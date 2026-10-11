@@ -2,6 +2,22 @@
 add_library(ninfer_ops STATIC)
 ninfer_internal_includes(ninfer_ops)
 ninfer_cuda_archive(ninfer_ops)
+if(WIN32 AND CMAKE_CUDA_ARCHITECTURES STREQUAL "75")
+  # This local Turing build only runs sm_75. Keeping its duplicate compute_75 PTX
+  # inflated the linked server to 2.12 GB: MSVC linked it, but Windows rejected
+  # it before main. Retain the same native cubins and remove the unused JIT copy.
+  get_filename_component(_ninfer_cuda_bin "${CMAKE_CUDA_COMPILER}" DIRECTORY)
+  find_program(NINFER_NVPRUNE_EXECUTABLE nvprune
+               HINTS "${_ninfer_cuda_bin}" NO_DEFAULT_PATH REQUIRED)
+  add_custom_command(TARGET ninfer_ops POST_BUILD
+    COMMAND "${NINFER_NVPRUNE_EXECUTABLE}" -arch sm_75
+            "$<TARGET_FILE:ninfer_ops>" -o "$<TARGET_FILE:ninfer_ops>.pruned"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:ninfer_ops>.pruned" "$<TARGET_FILE:ninfer_ops>"
+    COMMAND "${CMAKE_COMMAND}" -E rm "$<TARGET_FILE:ninfer_ops>.pruned"
+    COMMENT "Keeping native sm_75 CUDA code for the Windows executable"
+    VERBATIM)
+endif()
 target_link_libraries(ninfer_ops PUBLIC ninfer_core)
 # The opt-in cuBLAS prefill route hands its GEMM to cuBLAS; see
 # ops/linear_swiglu/q4cublas/w4_cublas_prefill.h for why that route exists.

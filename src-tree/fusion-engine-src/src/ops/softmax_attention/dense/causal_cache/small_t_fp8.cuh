@@ -44,7 +44,7 @@ __launch_bounds__(WarpsPerCta * 32, MinBlocksPerSm) __global__
     constexpr int Threads              = Wc * 32;
     constexpr int QKKs                 = D / 16;
     constexpr int QKNt                 = Bc / 8;
-    constexpr int PStride              = Bc == 32 ? 64 : Bc;
+    constexpr int PStride              = Bc <= 32 ? 64 : Bc;
     constexpr int ConsumerWarpsPerTile = Wc / RowTiles;
     constexpr int PVNtPerWarp          = D / (ConsumerWarpsPerTile * 8);
     constexpr int PVKs                 = Bc / 16;
@@ -57,7 +57,7 @@ __launch_bounds__(WarpsPerCta * 32, MinBlocksPerSm) __global__
     constexpr unsigned FullMask        = 0xffffffffU;
 
     static_assert(TokenTile >= 1 && TokenTile * Geometry::GroupSize <= 48);
-    static_assert(Bc == 32 || Bc == 64);
+    static_assert(Bc == 16 || Bc == 32 || Bc == 64);
     static_assert(RowTiles >= 1 && RowTiles <= 3);
     static_assert(Wc > RowTiles && Wc % RowTiles == 0);
     static_assert(PVNtPerWarp == 4 || PVNtPerWarp == 8 || PVNtPerWarp == 16);

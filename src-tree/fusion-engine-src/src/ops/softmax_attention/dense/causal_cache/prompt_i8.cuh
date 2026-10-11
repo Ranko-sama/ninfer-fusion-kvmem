@@ -84,10 +84,16 @@
 
 namespace ninfer::ops {
 
+#if defined(NINFER_SM75)
+inline constexpr int kCausalPromptI8Warps      = 8;
+inline constexpr int kCausalPromptI8Br         = 32;
+inline constexpr int kCausalPromptI8Bc         = 32;
+#else
 inline constexpr int kCausalPromptI8Warps      = 16;
-inline constexpr int kCausalPromptI8Threads    = kCausalPromptI8Warps * 32;
 inline constexpr int kCausalPromptI8Br         = 64;
 inline constexpr int kCausalPromptI8Bc         = 64;
+#endif
+inline constexpr int kCausalPromptI8Threads    = kCausalPromptI8Warps * 32;
 inline constexpr int kCausalPromptI8Groups     = kCausalPromptHeadDim / kKVCacheInt8Group;
 inline constexpr int kCausalPromptI8DB16       = kCausalPromptHeadDim / 2;
 inline constexpr int kCausalPromptI8RowTiles   = kCausalPromptI8Br / 16;
@@ -119,7 +125,11 @@ inline constexpr int kCausalPromptI8SmemBytes =
 
 static_assert(kCausalPromptI8Groups == 4);
 static_assert(kCausalPromptI8DConsumers == 4);
+#if defined(NINFER_SM75)
+static_assert(kCausalPromptI8SmemBytes <= 64 * 1024);
+#else
 static_assert(kCausalPromptI8SmemBytes == 93184);
+#endif
 
 // The f16 value loaders this kernel needs now live in ops/kv_cache/int8_g64_codec.cuh, beside their
 // bf16 counterparts: kv_cache_int8_dequant_f16x8_from and kv_cache_int4_dequant_f16x8_from. They
@@ -291,17 +301,18 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
 
     auto issue_kv_tile = [&](int tile_k0) {
         const int physical_page = block_table[tile_k0 >> kPagedKVPageShift];
+        const int page_offset = tile_k0 & kPagedKVPageMask;
         for (int key_l = tid; key_l < Bc; key_l += kCausalPromptI8Threads) {
             const int key = tile_k0 + key_l;
             __half* kd    = &k_scale_s[key_l * Groups];
             __half* vd    = &v_scale_s[key_l * VGroups];
             if (key <= max_query_abs) {
                 const std::int64_t off =
-                    kv_cache_int8_quant_scale_index<Geometry>(physical_page, kv_head, 0, key_l);
+                    kv_cache_int8_quant_scale_index<Geometry>(physical_page, kv_head, 0, page_offset + key_l);
                 ninfer::ops::cp_async<8>(kd, &cache_k_scale[off]);
                 if constexpr (PackedValues) {
                     const std::int64_t voff = kv_cache_int4_value_scale_index<Geometry>(
-                        physical_page, kv_head, 0, key_l);
+                        physical_page, kv_head, 0, page_offset + key_l);
                     ninfer::ops::cp_async<16>(vd, &cache_v_scale[voff]);
                 } else {
                     ninfer::ops::cp_async<8>(vd, &cache_v_scale[off]);
@@ -329,9 +340,9 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
                     if (key <= max_query_abs) {
                         const std::int64_t key_off =
                             kv_cache_packed_key_chunk_index<Geometry, Keys>(physical_page, kv_head,
-                                                                            d, key_l);
+                                                                            d, page_offset + key_l);
                         const std::int64_t value_off = kv_cache_int4_value_code_index<Geometry>(
-                            physical_page, kv_head, d >> 1, key_l);
+                            physical_page, kv_head, d >> 1, page_offset + key_l);
                         k_packed[i] = *reinterpret_cast<const KeyChunk*>(
                             reinterpret_cast<const std::uint8_t*>(cache_k) + key_off);
                         ninfer::ops::cp_async<8>(
@@ -355,12 +366,12 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
             std::int8_t* vd = &v_i8[key_l * D + d];
             if (key <= max_query_abs) {
                 const std::int64_t off =
-                    kv_cache_int8_quant_code_index<Geometry>(physical_page, kv_head, d, key_l);
+                    kv_cache_int8_quant_code_index<Geometry>(physical_page, kv_head, d, page_offset + key_l);
                 cp_async<16, Cache::cg>(kd, &cache_k[off]);
                 if constexpr (PackedValues) {
                     // Sixteen dimensions occupy eight packed bytes.
                     const std::int64_t voff = kv_cache_int4_value_code_index<Geometry>(
-                        physical_page, kv_head, d >> 1, key_l);
+                        physical_page, kv_head, d >> 1, page_offset + key_l);
                     // cp.async.cg is 16-byte only; the 8-byte form uses the default policy.
                     ninfer::ops::cp_async<8>(&v_i8[key_l * D + (d >> 1)],
                                              reinterpret_cast<const std::uint8_t*>(cache_v) + voff);

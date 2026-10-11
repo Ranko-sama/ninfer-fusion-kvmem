@@ -87,10 +87,24 @@ __device__ __forceinline__ void causal_prompt_i8_fast_mma_f16_acc(unsigned& c0, 
                                                                   unsigned a0, unsigned a1,
                                                                   unsigned a2, unsigned a3,
                                                                   unsigned b0, unsigned b1) {
+#if defined(NINFER_SM75)
+    // Turing has f16-accumulate MMA only at m16n8k8; split the k16 step into its two k8 halves.
+    // The m16n8k16 A fragment is {(r0..7,k0..7),(r8..15,k0..7),(r0..7,k8..15),(r8..15,k8..15)}, so
+    // the halves are (a0,a1)x b0 and (a2,a3)x b1, and the f16 accumulator layout is unchanged.
+    asm volatile("mma.sync.aligned.m16n8k8.row.col.f16.f16.f16.f16 "
+                 "{%0,%1}, {%2,%3}, {%4}, {%0,%1};\n"
+                 : "+r"(c0), "+r"(c1)
+                 : "r"(a0), "r"(a1), "r"(b0));
+    asm volatile("mma.sync.aligned.m16n8k8.row.col.f16.f16.f16.f16 "
+                 "{%0,%1}, {%2,%3}, {%4}, {%0,%1};\n"
+                 : "+r"(c0), "+r"(c1)
+                 : "r"(a2), "r"(a3), "r"(b1));
+#else
     asm volatile("mma.sync.aligned.m16n8k16.row.col.f16.f16.f16.f16 "
                  "{%0,%1}, {%2,%3,%4,%5}, {%6,%7}, {%0,%1};\n"
                  : "+r"(c0), "+r"(c1)
                  : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b0), "r"(b1));
+#endif
 }
 
 // One ldmatrix.trans b16 lane of an INT8 [key][d] tile holds the codes

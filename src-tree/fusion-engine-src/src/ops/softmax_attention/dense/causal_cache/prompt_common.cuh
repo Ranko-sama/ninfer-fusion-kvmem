@@ -18,9 +18,16 @@ namespace ninfer::ops {
 
 inline constexpr int kCausalPromptHeadDim = 256;
 
+#if defined(NINFER_SM75)
+// Turing allows 64 KiB shared memory per block. The 64x64 tile needs 96 KiB.
+inline constexpr int kCausalPromptBr        = 32;
+inline constexpr int kCausalPromptBc        = 32;
+inline constexpr int kCausalPromptThreads   = 64;
+#else
 inline constexpr int kCausalPromptBr        = 64;
 inline constexpr int kCausalPromptBc        = 64;
 inline constexpr int kCausalPromptThreads   = 128;
+#endif
 inline constexpr int kCausalPromptSmemBytes = (kCausalPromptBr + 2 * kCausalPromptBc) *
                                               kCausalPromptHeadDim *
                                               static_cast<int>(sizeof(__nv_bfloat16));
@@ -62,6 +69,7 @@ __device__ __forceinline__ void causal_prompt_store_byte_swizzled(Byte* tile, in
 
 template <int Columns>
 __device__ __forceinline__ int causal_prompt_p_swz(int row, int col) {
+    if constexpr (Columns == 16) { return (((col >> 3) ^ (row & 1)) << 3) | (col & 7); }
     if constexpr (Columns == 32) { return (((col >> 3) ^ (row & 3)) << 3) | (col & 7); }
     return causal_prompt_swz(row, col);
 }

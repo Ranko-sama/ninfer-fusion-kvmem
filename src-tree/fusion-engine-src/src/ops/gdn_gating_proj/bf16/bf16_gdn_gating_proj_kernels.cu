@@ -257,9 +257,37 @@ void require_shape35(const Weight& w, const char* name) {
     }
 }
 
-template <class Geometry, int SplitK>
-constexpr std::int32_t cooperative_resident_ctas_per_sm() noexcept {
+template <class Geometry, int SplitK, int Warps, bool NormalizeInput, int NormTokenCapacity>
+std::int32_t cooperative_resident_ctas_per_sm() noexcept {
     static_assert(SplitK > 1);
+#if defined(NINFER_SM75)
+    // The sm_86 occupancy measurements below do not apply to Turing's 64 KiB
+    // shared memory per SM or its emulated BF16 register usage. Both full and
+    // tail kernels can be used while slicing a call, so use their lower bound.
+    constexpr int shared = kBf16GdnSmemBytes<Geometry::kBlockN>;
+    configure_cuda_device_once([] {
+        const auto full = cudaFuncSetAttribute(
+            bf16_gdn_gating_proj_gemm_mma_kernel<Geometry, SplitK, true, Warps,
+                                                 NormalizeInput, NormTokenCapacity>,
+            cudaFuncAttributeMaxDynamicSharedMemorySize, kBf16GdnSmemBytes<Geometry::kBlockN>);
+        if (full != cudaSuccess) { return full; }
+        return cudaFuncSetAttribute(
+            bf16_gdn_gating_proj_gemm_mma_kernel<Geometry, SplitK, false, Warps,
+                                                 NormalizeInput, NormTokenCapacity>,
+            cudaFuncAttributeMaxDynamicSharedMemorySize, kBf16GdnSmemBytes<Geometry::kBlockN>);
+    });
+    int full_blocks = 0;
+    int tail_blocks = 0;
+    CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &full_blocks, bf16_gdn_gating_proj_gemm_mma_kernel<Geometry, SplitK, true, Warps,
+                                                          NormalizeInput, NormTokenCapacity>,
+        Warps * 32, shared));
+    CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &tail_blocks, bf16_gdn_gating_proj_gemm_mma_kernel<Geometry, SplitK, false, Warps,
+                                                          NormalizeInput, NormTokenCapacity>,
+        Warps * 32, shared));
+    return std::min(full_blocks, tail_blocks);
+#else
     if constexpr (std::is_same_v<Geometry, Bf16Gdn27Geometry>) {
         static_assert(SplitK == 8 || SplitK == 4 || SplitK == 2);
         // Measured on the sm_86 build (cuobjdump -res-usage): BN128 split-8/4/2 are all run at
@@ -277,6 +305,7 @@ constexpr std::int32_t cooperative_resident_ctas_per_sm() noexcept {
         if (SplitK == 16) { return 4; }
         return 3;
     }
+#endif
 }
 
 template <class Geometry, int SplitK, int Warps = kBf16GdnWarps, bool NormalizeInput = false,
@@ -363,8 +392,9 @@ bool launch_bf16_prefill_mma(Bf16GdnGatingTokenVariant variant, const Tensor& x,
     } else {
         constexpr std::int64_t kCtasPerTokenTile =
             static_cast<std::int64_t>(Geometry::kHeads / kBf16GdnBlockM) * SplitK;
-        constexpr std::int32_t kResidentCtasPerSm =
-            cooperative_resident_ctas_per_sm<Geometry, SplitK>();
+        const std::int32_t kResidentCtasPerSm =
+            cooperative_resident_ctas_per_sm<Geometry, SplitK, Warps, NormalizeInput,
+                                              NormTokenCapacity>();
         const std::int64_t resident_ctas =
             static_cast<std::int64_t>(multiprocessor_count) * kResidentCtasPerSm;
         const std::int64_t max_token_tiles = resident_ctas / kCtasPerTokenTile;

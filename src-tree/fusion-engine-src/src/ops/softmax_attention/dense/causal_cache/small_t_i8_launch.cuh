@@ -44,24 +44,23 @@ void launch_tc_partial_i8(const Tensor& q, CacheInput input, const Tensor& pos, 
     auto launch = [&]<int WarpsPerCta, int MinBlocksPerSm, int KeyBlock, bool DynamicArena,
                       int QkSplit = 1, bool EarlyFetch = false>() {
         const dim3 grid(Geometry::KVHeads, splits, invocation.batch_size);
-        constexpr std::size_t kDynamicBytes =
-            DynamicArena ? static_cast<std::size_t>(4 * KeyBlock * kCausalHeadDim) : 0u;
         auto issue_pv = [&]<bool PackedValues, KvKeyCoding Keys, bool PvF16>() {
             if constexpr (DynamicArena) {
-                configure_cuda_device_once([&] {
+                configure_cuda_device_once([] {
                     return cudaFuncSetAttribute(
                         causal_attention_small_t_i8_tiled_kernel<
                             Geometry, TokenTile, WarpsPerCta, MinBlocksPerSm, KeyBlock, DynamicArena,
                             MultiBatch, Masked, CacheInput, PackedValues, Keys, PvF16, QkSplit,
                             EarlyFetch>,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(kDynamicBytes));
+                        cudaFuncAttributeMaxDynamicSharedMemorySize, 4 * KeyBlock * kCausalHeadDim);
                 });
             }
             causal_attention_small_t_i8_tiled_kernel<Geometry, TokenTile, WarpsPerCta,
                                                      MinBlocksPerSm, KeyBlock, DynamicArena,
                                                      MultiBatch, Masked, CacheInput, PackedValues,
                                                      Keys, PvF16, QkSplit, EarlyFetch>
-            <<<grid, WarpsPerCta * 32, kDynamicBytes, stream>>>(
+            <<<grid, WarpsPerCta * 32,
+               DynamicArena ? static_cast<std::size_t>(4 * KeyBlock * kCausalHeadDim) : 0u, stream>>>(
                 static_cast<const __nv_bfloat16*>(q.data), input,
                 static_cast<const std::int32_t*>(pos.data), static_cast<std::int8_t*>(cache_k.data),
                 static_cast<std::int8_t*>(cache_v.data), static_cast<__half*>(cache_k_scale.data),
@@ -162,8 +161,10 @@ void launch_tc_partial_i8(const Tensor& q, CacheInput input, const Tensor& pos, 
                 launch.template operator()<6, 2, 32, false>();
             } else if (routed == "12x1x32") {
                 launch.template operator()<12, 1, 32, false>();
+#if !defined(NINFER_SM75)
             } else if (routed == "12x1x64d") {
                 launch.template operator()<12, 1, 64, true>();
+#endif
             } else if (routed == "24x1x32") {
                 launch.template operator()<24, 1, 32, false>();
             } else if (routed == "6x2x32q") {
@@ -195,7 +196,12 @@ void launch_tc_partial_i8(const Tensor& q, CacheInput input, const Tensor& pos, 
         } else if (implementation_window <= 2054) {
             launch.template operator()<12, 1, 32, false>();
         } else if (implementation_window <= 8198) {
+#if defined(NINFER_SM75)
+            // The 64-key arena alone uses 64 KiB, leaving no space for the static Q tile.
+            launch.template operator()<12, 1, 32, false>();
+#else
             launch.template operator()<12, 1, 64, true>();
+#endif
         } else {
             launch.template operator()<6, 2, 32, false>();
         }

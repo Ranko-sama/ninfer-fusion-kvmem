@@ -70,11 +70,19 @@ __device__ __forceinline__ __nv_bfloat16 residual_add_bf16(float accumulator,
 }
 
 __device__ __forceinline__ std::uint32_t pack_bf16x2(float lo, float hi) {
+#if defined(NINFER_SM75)
+    // CUDA provides round-to-nearest-even software conversion on Turing.
+    const auto lo_bf16 = __float2bfloat16_rn(lo);
+    const auto hi_bf16 = __float2bfloat16_rn(hi);
+    return static_cast<std::uint32_t>(__bfloat16_as_ushort(lo_bf16)) |
+           (static_cast<std::uint32_t>(__bfloat16_as_ushort(hi_bf16)) << 16);
+#else
     std::uint32_t out;
     const std::uint32_t lo_bits = __float_as_uint(lo);
     const std::uint32_t hi_bits = __float_as_uint(hi);
     asm volatile("cvt.rn.bf16x2.f32 %0, %1, %2;\n" : "=r"(out) : "r"(hi_bits), "r"(lo_bits));
     return out;
+#endif
 }
 
 // Exact BF16 expansion for consumers that need FP32 operand bits, including TF32 MMA.

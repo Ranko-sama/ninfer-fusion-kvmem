@@ -3,6 +3,20 @@
 set(NINFER_DEVICE_PROFILES_FILE ${CMAKE_CURRENT_SOURCE_DIR}/engine/device_profiles.json)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${NINFER_DEVICE_PROFILES_FILE})
 file(READ ${NINFER_DEVICE_PROFILES_FILE} NINFER_DEVICE_PROFILES_JSON)
+if(MSVC)
+  # MSVC 19.44 limits each literal to 16,380 characters. Adjacent raw literals
+  # retain the JSON bytes while allowing the bundled profiles to grow past that limit.
+  set(_profile_json_remaining "${NINFER_DEVICE_PROFILES_JSON}")
+  set(NINFER_DEVICE_PROFILES_JSON "")
+  string(LENGTH "${_profile_json_remaining}" _profile_json_length)
+  while(_profile_json_length GREATER 16000)
+    string(SUBSTRING "${_profile_json_remaining}" 0 16000 _profile_json_chunk)
+    string(APPEND NINFER_DEVICE_PROFILES_JSON "${_profile_json_chunk})ninfer_json\" R\"ninfer_json(")
+    string(SUBSTRING "${_profile_json_remaining}" 16000 -1 _profile_json_remaining)
+    string(LENGTH "${_profile_json_remaining}" _profile_json_length)
+  endwhile()
+  string(APPEND NINFER_DEVICE_PROFILES_JSON "${_profile_json_remaining}")
+endif()
 configure_file(engine/device_profiles_builtin.cpp.in
                ${CMAKE_CURRENT_BINARY_DIR}/engine/device_profiles_builtin.cpp @ONLY)
 

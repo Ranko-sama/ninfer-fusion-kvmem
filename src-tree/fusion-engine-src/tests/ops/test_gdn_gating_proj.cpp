@@ -472,13 +472,16 @@ int verify_workspace_capacity_contract(const Geometry& geometry,
     const std::size_t interval =
         ops::gdn_gating_proj_workspace_capacity_bytes(geometry.heads, geometry.hidden, 1, last);
     std::size_t witness = 0;
-    for (const std::int32_t tokens : route_endpoints) {
+    // On devices with fewer SMs than the tuned 82-SM target, a cooperative
+    // route can end inside a nominal interval. Its workspace maximum can then
+    // occur before the original route endpoints; check every admitted width.
+    for (std::int32_t tokens = 1; tokens <= last; ++tokens) {
         witness = std::max(witness, ops::gdn_gating_proj_workspace_capacity_bytes(
                                         geometry.heads, geometry.hidden, tokens, tokens));
     }
     int failures = 0;
     if (interval != witness) {
-        std::cerr << geometry.label << ": GDN control interval missed a route endpoint\n";
+        std::cerr << geometry.label << ": GDN control interval missed an extent\n";
         ++failures;
     }
     for (const auto bounds :

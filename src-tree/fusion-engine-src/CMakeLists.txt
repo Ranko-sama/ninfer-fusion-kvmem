@@ -11,13 +11,18 @@ endif()
 # 120a is admitted locally as an unqualified target. Consumer Blackwell is Ada-like at the warp
 # level - mma.sync, ldmatrix and cp.async recompile natively, and there is no tcgen05 or tensor
 # memory at all - so the compatibility path below is what actually runs there.
-if(NOT CMAKE_CUDA_ARCHITECTURES MATCHES "^(80|86|89|120a)$")
+if(NOT CMAKE_CUDA_ARCHITECTURES MATCHES "^(75|80|86|89|120a)$")
   message(FATAL_ERROR
-    "NInfer supports CMAKE_CUDA_ARCHITECTURES=80, 86, 89 or 120a; got "
+    "NInfer supports CMAKE_CUDA_ARCHITECTURES=75, 80, 86, 89 or 120a; got "
     "'${CMAKE_CUDA_ARCHITECTURES}'")
 endif()
 
 project(ninfer LANGUAGES C CXX CUDA)
+
+# Turing uses synchronous staging and native m16n8k8/m8n8k16 MMA primitives.
+if(CMAKE_CUDA_ARCHITECTURES STREQUAL "75")
+  add_compile_definitions(NINFER_SM75=1)
+endif()
 
 # NINFER_SM8X_COMPAT gates every Ampere/early-Ada compatibility path. ninfer_ops also sets it
 # PUBLIC for its own consumers, but that link is PRIVATE through ninfer_engine, so apps and tests
@@ -30,7 +35,7 @@ project(ninfer LANGUAGES C CXX CUDA)
 # NINFER_SM120_NATIVE=ON to build the native routes instead.
 option(NINFER_SM120_NATIVE
        "On a 120a build, compile upstream's native routes instead of the mma.sync path" OFF)
-if(CMAKE_CUDA_ARCHITECTURES MATCHES "^(80|86|89)$" OR NOT NINFER_SM120_NATIVE)
+if(CMAKE_CUDA_ARCHITECTURES MATCHES "^(75|80|86|89)$" OR NOT NINFER_SM120_NATIVE)
   set(NINFER_COMPAT_PATH ON)
   add_compile_definitions(NINFER_SM8X_COMPAT=1)
 else()
@@ -132,6 +137,15 @@ endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(MSVC)
+  # This project has no C++ modules. Ordinary include dependencies must reach Ninja.
+  set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+  # CMake 3.31 can decode UTF-8 cl.exe diagnostics as CP936 on Chinese Windows.
+  # Ninja matches the raw UTF-8 prefix, so repair only this observed mis-decoding.
+  if(CMAKE_CL_SHOWINCLUDES_PREFIX STREQUAL "娉ㄦ剰: 鍖呭惈鏂囦欢:  ")
+    set(CMAKE_CL_SHOWINCLUDES_PREFIX "注意: 包含文件:  ")
+  endif()
+endif()
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)        # clangd / IDE tooling

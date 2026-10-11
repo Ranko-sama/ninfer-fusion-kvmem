@@ -114,6 +114,11 @@ void causal_attention_prompt_attention_launch_for(const Tensor& q, const Tensor&
                                                   Metadata metadata, Tensor& out, bool fast,
                                                   cudaStream_t stream) {
     fast = causal_attention_prompt_fast_kernel(cache.storage, fast);
+#if defined(NINFER_SM75)
+    // The double-buffered fast tile exceeds Turing's 64 KiB block limit even at four warps.
+    // Use the smaller exact-attention tile; the execution hint cannot override device limits.
+    fast = false;
+#endif
     if (fast && cache.storage == KvCacheStorage::Int8Group64) {
         causal_attention_prompt_i8_fast_launch_for<Geometry, false>(q, positions, scale, cache,
                                                                     metadata, out, stream);

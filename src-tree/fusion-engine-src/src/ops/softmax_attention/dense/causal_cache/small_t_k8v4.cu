@@ -24,7 +24,12 @@ void launch_k8v4_partial(const Tensor& q, CacheInput input, const Tensor& positi
     // static (q_s/p_s/etc), since unlike before this kernel keeps a real dequantized BF16 copy of
     // K beside its raw FP8 staging buffer -- over sm_86/sm_89's ~99KiB-per-block budget (same
     // constraint as small_t_fp8.cu; see its comment). KeyBlock=32 fits comfortably (~75KiB).
+#if defined(NINFER_SM75)
+    // Include static Q/P staging in Turing's 64 KiB shared-memory budget.
+    constexpr int KeyBlock             = 16;
+#else
     constexpr int KeyBlock             = 32;
+#endif
     constexpr int MinBlocks            = TokenTile == 1 ? 2 : 1;
     // k_fp8(Bc*D) + k_b16(2*Bc*D) + v_nvfp4(Bc*D/2) + v_f16(2*Bc*D) = 5.5*Bc*D bytes.
     constexpr std::size_t DynamicBytes = 11u * KeyBlock * kCausalHeadDim / 2u;

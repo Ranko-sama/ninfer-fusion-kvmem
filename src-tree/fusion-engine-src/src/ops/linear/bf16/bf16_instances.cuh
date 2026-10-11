@@ -4,7 +4,12 @@
 namespace ninfer::ops::detail::unified {
 
 using Bf16A16MmaR32T32K256S3 =
+#if defined(NINFER_SM75)
+    // The nominal three-stage tile needs 96 KiB; Turing uses two (64 KiB).
+    Bf16A16MmaSchedule<32, 32, 256, 16, 8, 2, 1, Cache::cg, Cache::cg,
+#else
     Bf16A16MmaSchedule<32, 32, 256, 16, 8, 3, 1, Cache::cg, Cache::cg,
+#endif
                        Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>;
 using Bf16A16MmaR32T32K192S2 =
     Bf16A16MmaSchedule<32, 32, 192, 16, 8, 2, 2, Cache::cg, Cache::ca,

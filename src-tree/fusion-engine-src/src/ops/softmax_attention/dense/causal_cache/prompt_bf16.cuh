@@ -84,7 +84,7 @@ __launch_bounds__(kCausalPromptThreads, 1) __global__
     constexpr float Log2E       = 1.4426950408889634074f;
     constexpr unsigned FullMask = 0xffffffffu;
 
-    static_assert(Threads == 128);
+    static_assert(Threads == (Br / 16) * 32);
 
     extern __shared__ __align__(16) __nv_bfloat16 causal_smem[];
     __nv_bfloat16* q_s = causal_smem;  // [Br, D] swizzled
@@ -194,7 +194,9 @@ __launch_bounds__(kCausalPromptThreads, 1) __global__
 
     for (int kb = 0; kb < n_block_max; ++kb) {
         const int k0                 = kb * Bc;
-        const int next_physical_page = (kb + 1 < n_block_max) ? block_table[kb + 1] : physical_page;
+        const int next_physical_page = (kb + 1 < n_block_max)
+                                           ? block_table[((kb + 1) * Bc) >> kPagedKVPageShift]
+                                           : physical_page;
 
         ninfer::ops::cp_wait<0>(); // K(kb) landed (also publishes q_s / prev PV done)
         __syncthreads();

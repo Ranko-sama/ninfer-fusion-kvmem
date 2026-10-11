@@ -26,13 +26,18 @@ void launch_bf16_a16_gemv(const Bf16A16Operands& p, Output output, Epilogue epil
     int bytes             = 0;
     if constexpr (Schedule::kActivationAccess == Bf16ActivationAccess::Shared) {
         constexpr int static_bytes = sizeof(Bf16GemvSharedStorage<Schedule>);
+#if defined(NINFER_SM75)
+        constexpr int max_dynamic  = (64 * 1024 - static_bytes) / 128 * 128;
+#else
         constexpr int max_dynamic  = (99 * 1024 - static_bytes) / 128 * 128;
+#endif
         if (p.k > max_dynamic / 2)
             throw std::invalid_argument("BF16 GEMV activation exceeds shared memory capacity");
         bytes = p.k * 2;
         if (bytes + static_bytes > 48 * 1024) {
             configure_cuda_device_once([&] {
-                return cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+                return cudaFuncSetAttribute(bf16_a16_gemv_kernel<Schedule, Output, Epilogue>,
+                                            cudaFuncAttributeMaxDynamicSharedMemorySize,
                                             max_dynamic);
             });
         }
@@ -109,8 +114,10 @@ void launch_bf16_a16_sliced_k_mma(const Bf16A16Operands& p, Output output, Epilo
     const int bytes       = bf16_prepare_shared<Schedule::kSharedBytes, kernel>();
     for_each_token_slice(p.tokens, Schedule::kBlockTokens, [&](int offset, int count) {
         const dim3 grid(p.rows / Schedule::kBlockRows, div_up(count, Schedule::kBlockTokens));
-        kernel<<<grid, Schedule::kThreads, bytes, stream>>>(p.x, p.weight, output, epilogue, p.rows,
-                                                            p.k, p.tokens, offset);
+        // A direct launch avoids NVCC/MSVC's constexpr function-pointer capture failure.
+        bf16_a16_sliced_k_mma_kernel<Schedule, Output, Epilogue>
+            <<<grid, Schedule::kThreads, bytes, stream>>>(p.x, p.weight, output, epilogue, p.rows,
+                                                          p.k, p.tokens, offset);
         CUDA_CHECK(cudaGetLastError());
     });
 }

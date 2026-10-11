@@ -820,6 +820,7 @@ void calibrate_attention(ops::DeviceRouteProfile& profile, Timer& timer,
         }
         // The fast prompt kernel against the standard one (as the PV and packing choices above
         // left it): one wave-aligned chunk at 32K and one at 131K of context.
+#if !defined(NINFER_SM75)
         const Family fast{"attn_prompt_fast",
                           {"on"},
                           {1},
@@ -837,6 +838,7 @@ void calibrate_attention(ops::DeviceRouteProfile& profile, Timer& timer,
             profile.routes[fast.key] = std::move(fast_bands);
             ops::install_device_route_profile(std::make_shared<const ops::DeviceRouteProfile>(profile));
         }
+#endif
     }
 
     for (std::int32_t width = 1; width <= 8; ++width) {
@@ -852,6 +854,9 @@ void calibrate_attention(ops::DeviceRouteProfile& profile, Timer& timer,
             tiers = {"6x2x32",  "12x1x32",  "12x1x64d", "24x1x32",  "6x2x32q",
                      "12x1x32q", "6x2x32e", "12x1x32e", "6x2x32qe", "12x1x32qe"};
         }
+#if defined(NINFER_SM75)
+        std::erase(tiers, "12x1x64d"); // The dynamic arena plus Q exceeds Turing's 64 KiB limit.
+#endif
         const std::size_t workspace_bytes = ops::causal_softmax_attention_workspace_capacity_bytes(
             geometry, storage, {1, static_cast<std::uint32_t>(max_window)}, 1, width, width);
         WorkspaceArena workspace(std::max<std::size_t>(workspace_bytes, 256));

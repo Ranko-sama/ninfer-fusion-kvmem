@@ -38,6 +38,8 @@
 // Nothing in the prefetch path waits on a synchronous global read.
 
 #include "core/tensor.h"
+#include "ops/common/memory.cuh"
+#include "ops/common/mma.cuh"
 
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
@@ -55,12 +57,10 @@ constexpr int kStages  = 2;
 constexpr int kRingGroups = 8;  // 16 bytes of one row's scales, the widest cp.async
 constexpr int kRingBufs   = 2;
 
-__device__ __forceinline__ void mma_s8(int& c0, int& c1, int& c2, int& c3, unsigned a0, unsigned a1,
-                                       unsigned a2, unsigned a3, unsigned b0, unsigned b1) {
-    asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 "
-                 "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%0,%1,%2,%3};\n"
-                 : "+r"(c0), "+r"(c1), "+r"(c2), "+r"(c3)
-                 : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b0), "r"(b1));
+template <int Bytes>
+__device__ __forceinline__ void cp_async(void* smem, const void* gmem) {
+    // Retain this family's original cache policy on architectures with asynchronous copies.
+    ninfer::ops::cp_async<Bytes, Bytes == 16 ? Cache::cg : Cache::ca>(smem, gmem);
 }
 
 __device__ __forceinline__ uint4 lds128(const void* p) {
@@ -84,17 +84,6 @@ __device__ __forceinline__ unsigned lds8(const void* p) {
     const unsigned addr = static_cast<unsigned>(__cvta_generic_to_shared(p));
     asm volatile("ld.shared.u8 %0, [%1];" : "=r"(r) : "r"(addr));
     return r;
-}
-
-template <int kBytes>
-__device__ __forceinline__ void cp_async(void* smem, const void* gmem) {
-    const unsigned addr = static_cast<unsigned>(__cvta_generic_to_shared(smem));
-    if constexpr (kBytes == 16) {
-        asm volatile("cp.async.cg.shared.global [%0], [%1], 16;" ::"r"(addr), "l"(gmem));
-    } else {
-        asm volatile("cp.async.ca.shared.global [%0], [%1], %2;" ::"r"(addr), "l"(gmem),
-                     "n"(kBytes));
-    }
 }
 
 // Two packed bytes hold four consecutive k as (low,high) nibble pairs; this spreads them to one
@@ -391,7 +380,7 @@ __global__ __launch_bounds__(kThreads) void a8_mma_kernel(
                                                   sizeof(__half));
             }
         }
-        asm volatile("cp.async.commit_group;");
+        cp_commit();
     };
 
     float acc[MT][NT][4];
@@ -413,9 +402,9 @@ __global__ __launch_bounds__(kThreads) void a8_mma_kernel(
         const int issued  = (g + kStages < kGroups) ? (g + kStages) : kGroups;
         const int allowed = issued - (g + 1);
         if (allowed >= 1) {
-            asm volatile("cp.async.wait_group 1;");
+            cp_wait<1>();
         } else {
-            asm volatile("cp.async.wait_group 0;");
+            cp_wait<0>();
         }
         __syncthreads();
 
