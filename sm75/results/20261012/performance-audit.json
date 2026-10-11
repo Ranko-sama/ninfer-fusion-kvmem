@@ -1,0 +1,11 @@
+{
+  "six_complete_rounds": true,
+  "identical_requests": true,
+  "cold_long_prompts": true,
+  "fixed_2048_tokens": true,
+  "all_record_checks_pass": true,
+  "expected_cache_hits": true,
+  "route_profiles_unchanged": true,
+  "identical_runtime_arguments": true,
+  "identical_ninfer_environment": true
+}

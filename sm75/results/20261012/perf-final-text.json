@@ -1,0 +1,15 @@
+{
+  "complete": true,
+  "checks": {
+    "arithmetic": true,
+    "tool_call": true,
+    "cancel_mid_prefill": true,
+    "cancel_retry_1": true,
+    "cancel_retry_2": true,
+    "server_confirmed_cancel": true,
+    "long_later_records": true,
+    "long_earlier_records": true
+  },
+  "executable_sha256": "8443cc84dc8e123f332b41960141066711870bc88f043bc03326a75975e8e50d",
+  "device_profile_sha256": "d0d9360515479cf5345b259145cc4d2db9bf7b9f478997566a7a1cb5e02042e5"
+}

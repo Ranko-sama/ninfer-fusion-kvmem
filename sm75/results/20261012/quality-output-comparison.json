@@ -1,0 +1,42 @@
+{
+  "checks": {
+    "identical_runtime_arguments": true,
+    "identical_ninfer_environment": true,
+    "all_final_content_identical": true,
+    "all_reasoning_text_identical": true,
+    "all_requests_uncached": true,
+    "binary_hashes_unchanged": true
+  },
+  "tasks": {
+    "probability": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true,
+      "both_cache_tokens_zero": true
+    },
+    "integer-constraints": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true,
+      "both_cache_tokens_zero": true
+    },
+    "discount-path": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true,
+      "both_cache_tokens_zero": true
+    },
+    "topological-sort": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true,
+      "both_cache_tokens_zero": true
+    },
+    "shortest-subarray": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true,
+      "both_cache_tokens_zero": true
+    },
+    "merge-patch": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true,
+      "both_cache_tokens_zero": true
+    }
+  }
+}

@@ -6,3 +6,17 @@ build*/
 .vs/
 Thumbs.db
 .DS_Store
+
+# sm75 local inputs and generated artifacts
+/artifacts/
+/out/
+/.venv/
+*.ninfer
+*.exe
+*.dll
+*.pdb
+*.obj
+*.lib
+*.nsys-rep
+*.sqlite
+*.local.json

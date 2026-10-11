@@ -1,0 +1,56 @@
+[
+  {
+    "name": "dashboard",
+    "file": "dashboard.png",
+    "prompt": "Read this screenshot. Return only JSON with keys app, version, environment, active_users (integer), failed_jobs (integer), latency_p95, commit, region, warning, primary_button. Preserve the exact displayed strings.",
+    "expected": {
+      "app": "Atlas Deploy",
+      "version": "v2.7.4",
+      "environment": "STAGING",
+      "active_users": 128,
+      "failed_jobs": 7,
+      "latency_p95": "342 ms",
+      "commit": "9f3a7c2",
+      "region": "ap-southeast-1",
+      "warning": "Warning: API key expires in 3 days",
+      "primary_button": "Deploy release"
+    }
+  },
+  {
+    "name": "chinese-ui",
+    "file": "chinese-ui.png",
+    "prompt": "读取截图，只返回 JSON，字段为 app、project_id、owner、date、pending_bugs（整数）、status、blocker、button。保留界面原文；blocker 不包含“阻塞项：”前缀。",
+    "expected": {
+      "app": "云舟项目管理",
+      "project_id": "PRJ-4826",
+      "owner": "林晓雨",
+      "date": "2026-10-18",
+      "pending_bugs": 13,
+      "status": "等待审核",
+      "blocker": "支付回调签名校验失败",
+      "button": "重新检查"
+    }
+  },
+  {
+    "name": "code-editor-dense",
+    "file": "code-editor-dense.png",
+    "prompt": "Read this code editor screenshot. Return only JSON with api_base, retry_limit (integer), retry_delay_ms (integer), request_timeout_ms (integer), final_error, problem_codes (array in displayed order), request_id, http_status (integer), retry_after, checksum, region, highlighted_line (integer). Extract exact values; do not infer corrections to the code.",
+    "expected": {
+      "api_base": "/api/v2",
+      "retry_limit": 4,
+      "retry_delay_ms": 275,
+      "request_timeout_ms": 8500,
+      "final_error": "RETRY_EXHAUSTED",
+      "problem_codes": [
+        "TS2322",
+        "TS6133"
+      ],
+      "request_id": "R7Q9-4821",
+      "http_status": 503,
+      "retry_after": "12s",
+      "checksum": "8ac4d19e",
+      "region": "eu-west-2",
+      "highlighted_line": 3
+    }
+  }
+]

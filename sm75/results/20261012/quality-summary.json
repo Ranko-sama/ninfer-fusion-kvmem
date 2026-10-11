@@ -1,0 +1,211 @@
+{
+  "complete": true,
+  "scope": "Six task smoke test, one greedy completion per task/version; not statistical equivalence.",
+  "parameters": {
+    "temperature": 0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "seed": 42,
+    "reasoning_effort": "medium",
+    "max_tokens": 6144
+  },
+  "tasks_sha256": "7dbd5570cc3e7a9bf050c7d4ef3f033dae31e2ccf95873a8e83c5277913650f3",
+  "cases_sha256": "7143dd0a2b6aa366f626b593ff445af375753eaf98e1d4bfd0aa50d1fe9ed80f",
+  "profile_sha256": {
+    "old": "b367d59687e480e9fee6813dbdd7298a51c39edc340d84f3f0c3bd68def04a16",
+    "new": "d0d9360515479cf5345b259145cc4d2db9bf7b9f478997566a7a1cb5e02042e5"
+  },
+  "runs": [
+    {
+      "version": "old",
+      "results": [
+        {
+          "id": "probability",
+          "finish": "stop",
+          "tokens": 835,
+          "wall_s": 11.71772780000174,
+          "answer": "3/7",
+          "expected": "3/7",
+          "passed": true
+        },
+        {
+          "id": "integer-constraints",
+          "finish": "stop",
+          "tokens": 1236,
+          "wall_s": 16.260707599998568,
+          "answer": 16285,
+          "expected": 16285,
+          "passed": true
+        },
+        {
+          "id": "discount-path",
+          "finish": "stop",
+          "tokens": 1407,
+          "wall_s": 17.845644100001664,
+          "answer": 14,
+          "expected": 14,
+          "passed": true
+        },
+        {
+          "id": "topological-sort",
+          "finish": "stop",
+          "tokens": 901,
+          "wall_s": 12.869853099997272,
+          "passed": true,
+          "tests": {
+            "passed": 84,
+            "total": 84,
+            "failures": []
+          }
+        },
+        {
+          "id": "shortest-subarray",
+          "finish": "stop",
+          "tokens": 1866,
+          "wall_s": 28.205279999994673,
+          "passed": true,
+          "tests": {
+            "passed": 208,
+            "total": 208,
+            "failures": []
+          }
+        },
+        {
+          "id": "merge-patch",
+          "finish": "stop",
+          "tokens": 845,
+          "wall_s": 12.850580600003013,
+          "passed": false,
+          "tests": {
+            "passed": 152,
+            "total": 155,
+            "failures": [
+              {
+                "index": 2,
+                "pass": false,
+                "correct": false,
+                "unchanged": true,
+                "independent": true
+              },
+              {
+                "index": 49,
+                "pass": false,
+                "correct": false,
+                "unchanged": true,
+                "independent": true
+              },
+              {
+                "index": 88,
+                "pass": false,
+                "correct": false,
+                "unchanged": true,
+                "independent": true
+              }
+            ]
+          }
+        }
+      ],
+      "complete": true,
+      "profile_sha256_after": "b367d59687e480e9fee6813dbdd7298a51c39edc340d84f3f0c3bd68def04a16"
+    },
+    {
+      "version": "new",
+      "results": [
+        {
+          "id": "probability",
+          "finish": "stop",
+          "tokens": 835,
+          "wall_s": 11.690284199998132,
+          "answer": "3/7",
+          "expected": "3/7",
+          "passed": true
+        },
+        {
+          "id": "integer-constraints",
+          "finish": "stop",
+          "tokens": 1236,
+          "wall_s": 16.171754700000747,
+          "answer": 16285,
+          "expected": 16285,
+          "passed": true
+        },
+        {
+          "id": "discount-path",
+          "finish": "stop",
+          "tokens": 1407,
+          "wall_s": 18.06273780000629,
+          "answer": 14,
+          "expected": 14,
+          "passed": true
+        },
+        {
+          "id": "topological-sort",
+          "finish": "stop",
+          "tokens": 901,
+          "wall_s": 12.828825900010997,
+          "passed": true,
+          "tests": {
+            "passed": 84,
+            "total": 84,
+            "failures": []
+          }
+        },
+        {
+          "id": "shortest-subarray",
+          "finish": "stop",
+          "tokens": 1866,
+          "wall_s": 28.330766300001414,
+          "passed": true,
+          "tests": {
+            "passed": 208,
+            "total": 208,
+            "failures": []
+          }
+        },
+        {
+          "id": "merge-patch",
+          "finish": "stop",
+          "tokens": 845,
+          "wall_s": 12.574183099990478,
+          "passed": false,
+          "tests": {
+            "passed": 152,
+            "total": 155,
+            "failures": [
+              {
+                "index": 2,
+                "pass": false,
+                "correct": false,
+                "unchanged": true,
+                "independent": true
+              },
+              {
+                "index": 49,
+                "pass": false,
+                "correct": false,
+                "unchanged": true,
+                "independent": true
+              },
+              {
+                "index": 88,
+                "pass": false,
+                "correct": false,
+                "unchanged": true,
+                "independent": true
+              }
+            ]
+          }
+        }
+      ],
+      "complete": true,
+      "profile_sha256_after": "d0d9360515479cf5345b259145cc4d2db9bf7b9f478997566a7a1cb5e02042e5"
+    }
+  ],
+  "audit": {
+    "same_requests": true,
+    "all_finished": true,
+    "profiles_unchanged": true,
+    "cases_unchanged": true,
+    "tasks_unchanged": true
+  }
+}

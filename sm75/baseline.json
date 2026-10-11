@@ -1,0 +1,14 @@
+{
+  "upstream_repository": "1314521gjy/ninfer-fusion-kvmem",
+  "upstream_commit": "43c39c6c6b284760af5d78cbdc3b465b49b8b46f",
+  "fork_repository": "Ranko-sama/ninfer-fusion-kvmem",
+  "development_branch": "sm75",
+  "validated_release": "fusion-43c39c6-sm75-perf",
+  "executable_sha256": "8443cc84dc8e123f332b41960141066711870bc88f043bc03326a75975e8e50d",
+  "device_profile_sha256": "d0d9360515479cf5345b259145cc4d2db9bf7b9f478997566a7a1cb5e02042e5",
+  "hardware": "RTX 2080 Ti, sm75, 68 SM, 22528 MiB VRAM; Ryzen 5 5600; 32 GB RAM",
+  "toolchain": "Windows, CUDA 12.8.61, MSVC 14.44.35207",
+  "model": "Qwen3.8-27B-Coder390-EfficientThink-Q3LynnStyle-Q8MTP.ninfer",
+  "scope": "100K full GPU RK8V4 KV, FP16 GDN, MTP4, chunk 384, concurrency 1; no KVMem ring",
+  "note": "Historical validated binary. New builds have new hashes and need their own validation; do not relabel them with this hash."
+}

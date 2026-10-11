@@ -1,5 +1,13 @@
 # NOTICE · 署名、许可与我方改动声明
 
+## 本 Fork 的 sm75 修改声明（2026-10-12）
+
+`Ranko-sama/ninfer-fusion-kvmem` 的 `sm75` 分支基于上游提交 `43c39c6`，新增
+RTX 2080 Ti / Windows / CUDA 12.8 兼容、经过数值验证的注意力与 GDN 性能路径，
+以及本 Fork 的构建、验证和升级工具。模型权重与 KVMem 检索算法没有修改。
+逐项范围和验证边界见 [sm75/README.md](sm75/README.md)；具体修改可通过本分支
+相对上游的 Git diff 核对。下文保留原项目的署名与历史声明。
+
 本仓按 **Apache License 2.0** 发布（原文见 [LICENSE](LICENSE)）。
 本文件是 Apache-2.0 **§4** 要求的署名与改动声明，**只覆盖本仓的内容，不覆盖任何模型权重**（本仓不含权重）。
 

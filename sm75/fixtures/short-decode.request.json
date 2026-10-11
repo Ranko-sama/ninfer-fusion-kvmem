@@ -1,0 +1,19 @@
+{
+  "model": "qwen3.8-27b",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Implement a TypeScript generic retry helper with exponential backoff, cancellation via AbortSignal, a maximum attempt count, injected sleep and clock for testing, and a predicate controlling retryable failures. Explain the concurrency and cancellation edge cases and provide tests."
+    }
+  ],
+  "temperature": 1,
+  "top_p": 0.95,
+  "top_k": 20,
+  "reasoning_effort": "xhigh",
+  "max_tokens": 2048,
+  "seed": 175,
+  "stream": true,
+  "stream_options": {
+    "include_usage": true
+  }
+}

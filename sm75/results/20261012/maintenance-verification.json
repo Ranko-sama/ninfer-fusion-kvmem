@@ -1,0 +1,66 @@
+{
+  "date": "2026-10-12",
+  "scope": "Maintenance tooling verification; no C++/CUDA behavior changes or new binary build in this step.",
+  "build_environment_check": true,
+  "python_compile_check": true,
+  "powershell_parse_check": true,
+  "launcher_print_command_check": true,
+  "task_and_case_equivalence_to_original": true,
+  "performance_request_fixture_identity": true,
+  "performance_report_replay_audit": {
+    "six_complete_rounds": true,
+    "identical_requests": true,
+    "cold_long_prompts": true,
+    "fixed_2048_tokens": true,
+    "all_record_checks_pass": true,
+    "expected_cache_hits": true,
+    "route_profiles_unchanged": true,
+    "identical_runtime_arguments": true,
+    "identical_ninfer_environment": true
+  },
+  "functional_smoke_checks": {
+    "arithmetic": true,
+    "tool_call": true,
+    "cancel_mid_prefill": true,
+    "cancel_retry_1": true,
+    "cancel_retry_2": true,
+    "server_confirmed_cancel": true
+  },
+  "quality_complete": true,
+  "quality_scores_out_of_6": {
+    "old": 5,
+    "new": 5
+  },
+  "quality_output_comparison": {
+    "probability": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true
+    },
+    "integer-constraints": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true
+    },
+    "discount-path": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true
+    },
+    "topological-sort": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true
+    },
+    "shortest-subarray": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true
+    },
+    "merge-patch": {
+      "final_content_identical": true,
+      "reasoning_text_identical": true
+    }
+  },
+  "not_repeated": [
+    "full compilation",
+    "full numerical GPU test suite",
+    "six-round performance inference",
+    "95K and vision inference; existing frozen-binary evidence retained"
+  ]
+}
