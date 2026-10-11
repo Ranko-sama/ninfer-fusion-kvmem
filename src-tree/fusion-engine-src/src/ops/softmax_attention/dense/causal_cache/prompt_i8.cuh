@@ -11,6 +11,7 @@
 #include <math_constants.h>
 
 #include "ops/kv_cache/int8_g64_codec.cuh"
+#include "ops/kv_cache/int4_f16_sm75.cuh"
 #include "ops/softmax_attention/dense/causal_cache/prompt_common.cuh"
 
 #include <cstdint>
@@ -85,8 +86,10 @@
 namespace ninfer::ops {
 
 #if defined(NINFER_SM75)
-inline constexpr int kCausalPromptI8Warps      = 8;
-inline constexpr int kCausalPromptI8Br         = 32;
+// Keep 64 query rows: reducing the key tile alone fits Turing's 64 KiB arena
+// and reuses each staged K/V tile across twice as many queries as a 32-row CTA.
+inline constexpr int kCausalPromptI8Warps      = 16;
+inline constexpr int kCausalPromptI8Br         = 64;
 inline constexpr int kCausalPromptI8Bc         = 32;
 #else
 inline constexpr int kCausalPromptI8Warps      = 16;
@@ -600,10 +603,17 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
                     store_vec(dst, make_int4(0, 0, 0, 0));
 #else
                     if constexpr (PackedValues) {
+#if defined(NINFER_SM75)
+                        store_vec(dst, kv_cache_int4_dequant_f16x8_half_scale(
+                                           reinterpret_cast<const std::uint8_t*>(v_i8) +
+                                               key_l * D + (d >> 1),
+                                           v_scale_s[key_l * VGroups + grp]));
+#else
                         store_vec(dst, kv_cache_int4_dequant_f16x8_from(
                                            reinterpret_cast<const std::uint8_t*>(v_i8) +
                                                key_l * D + (d >> 1),
                                            vsf));
+#endif
                     } else {
                         store_vec(dst,
                                   kv_cache_int8_dequant_f16x8_from(&v_i8[key_l * D + d], vsf));

@@ -39,7 +39,9 @@ ninfer_stage_runtime_dlls(ninfer-serve)
 
 add_executable(ninfer-calibrate calibrate/main.cpp)
 ninfer_internal_includes(ninfer-calibrate)
-target_link_libraries(ninfer-calibrate PRIVATE ninfer_calibration ninfer_runtime_support)
+# Resolve this executable's direct CUDA API calls through the selected runtime
+# before transitive vendor targets can pull in a different Windows runtime.
+target_link_libraries(ninfer-calibrate PRIVATE ${NINFER_CUDART_TARGET} ninfer_calibration ninfer_runtime_support)
 ninfer_stage_runtime_dlls(ninfer-calibrate)
 
 add_executable(ninfer-perplexity

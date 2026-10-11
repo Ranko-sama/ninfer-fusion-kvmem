@@ -13,6 +13,7 @@
 // its launcher may submit independent token-tile slices when the whole grid cannot reside.
 
 #include "ops/common/math.cuh"
+#include "ops/common/gdn_mma.cuh"
 #include "ops/common/rowsplit_mma.cuh"
 #include "ops/common/warp.cuh"
 
@@ -260,9 +261,9 @@ __global__ __launch_bounds__(Warps * 32, 1) void bf16_gdn_gating_proj_gemm_mma_k
                         &bws[weight_stage + arow * kBf16GdnBlockK + bf16_gdn_swizzle(arow, acol)]));
 #pragma unroll
                 for (int ni = 0; ni < kNFragments; ++ni) {
-                    mma_bf16(a_acc[mi][ni][0], a_acc[mi][ni][1], a_acc[mi][ni][2], a_acc[mi][ni][3],
+                    mma_bf16_gdn(a_acc[mi][ni][0], a_acc[mi][ni][1], a_acc[mi][ni][2], a_acc[mi][ni][3],
                              af[0], af[1], af[2], af[3], xf[ni][0], xf[ni][1]);
-                    mma_bf16(b_acc[mi][ni][0], b_acc[mi][ni][1], b_acc[mi][ni][2], b_acc[mi][ni][3],
+                    mma_bf16_gdn(b_acc[mi][ni][0], b_acc[mi][ni][1], b_acc[mi][ni][2], b_acc[mi][ni][3],
                              bf[0], bf[1], bf[2], bf[3], xf[ni][0], xf[ni][1]);
                 }
             }

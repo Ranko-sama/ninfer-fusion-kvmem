@@ -2,6 +2,7 @@
 
 #include "core/device.h"
 #include "ops/common/math.cuh"
+#include "ops/common/gdn_mma.cuh"
 #include "ops/common/mma.cuh"
 #include "ops/common/warp.cuh"
 
@@ -94,7 +95,7 @@ __launch_bounds__(256, 2) void prepare_kernel(Arguments args, QkChunk* __restric
                 ldmatrix_x2(bf[0], bf[1],
                             smem_addr(sm.qk.k + vector_index(n * 8 + (lane & 7),
                                                              offset + ((lane >> 3) & 1) * 8)));
-                mma_bf16(acc[n][0], acc[n][1], acc[n][2], acc[n][3], af[0], af[1], af[2], af[3],
+                mma_bf16_gdn(acc[n][0], acc[n][1], acc[n][2], acc[n][3], af[0], af[1], af[2], af[3],
                          bf[0], bf[1]);
             }
         }

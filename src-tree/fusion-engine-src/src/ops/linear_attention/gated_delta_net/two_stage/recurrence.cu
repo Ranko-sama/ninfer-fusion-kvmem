@@ -2,6 +2,7 @@
 
 #include "core/device.h"
 #include "ops/common/math.cuh"
+#include "ops/common/gdn_mma.cuh"
 #include "ops/common/mma.cuh"
 
 #include <array>
@@ -125,7 +126,7 @@ __device__ __forceinline__ void matrix_delta(float (&acc)[4], const float* matri
         ldmatrix_x4(af[0], af[1], af[2], af[3],
                     smem_addr(matrix + square_index((lane & 7) + ((lane >> 3) & 1) * 8,
                                                     k + (lane >> 4) * 4)));
-        mma_tf32_bits(acc[0], acc[1], acc[2], acc[3], af[0], af[1], af[2], af[3],
+        mma_tf32_gdn(acc[0], acc[1], acc[2], acc[3], af[0], af[1], af[2], af[3],
                       __float_as_uint(delta[value_index<DV>(k + t, n * 8 + g)]),
                       __float_as_uint(delta[value_index<DV>(k + t + 4, n * 8 + g)]));
     }
@@ -224,13 +225,13 @@ __global__ __launch_bounds__(kThreads<DV>, (DV >= 32 ? 2 : 4)) void chunk_recurr
                     const float b1 = sm.snapshot[value_index<DV>(k + 2 * t + 1, n * 8 + g)];
                     const float b2 = sm.snapshot[value_index<DV>(k + 2 * t + 8, n * 8 + g)];
                     const float b3 = sm.snapshot[value_index<DV>(k + 2 * t + 9, n * 8 + g)];
-                    mma_tf32_bits(prediction[ni][0], prediction[ni][1], prediction[ni][2],
+                    mma_tf32_gdn(prediction[ni][0], prediction[ni][1], prediction[ni][2],
                                   prediction[ni][3], ka0[0], ka0[1], ka0[2], ka0[3],
                                   __float_as_uint(b0), __float_as_uint(b1));
-                    mma_tf32_bits(prediction[ni][0], prediction[ni][1], prediction[ni][2],
+                    mma_tf32_gdn(prediction[ni][0], prediction[ni][1], prediction[ni][2],
                                   prediction[ni][3], ka1[0], ka1[1], ka1[2], ka1[3],
                                   __float_as_uint(b2), __float_as_uint(b3));
-                    mma_bf16(history[ni][0], history[ni][1], history[ni][2], history[ni][3], qa[0],
+                    mma_bf16_gdn(history[ni][0], history[ni][1], history[ni][2], history[ni][3], qa[0],
                              qa[1], qa[2], qa[3], pack_bf16x2(b0, b1), pack_bf16x2(b2, b3));
                 }
             }
@@ -249,7 +250,7 @@ __global__ __launch_bounds__(kThreads<DV>, (DV >= 32 ? 2 : 4)) void chunk_recurr
                         unsigned af[4], b0, b1;
                         load_vector_bf16_a(qk.q, k, lane, af);
                         load_bf16_b<DV>(sm.snapshot, k, n, lane, b0, b1);
-                        mma_bf16(history[0][0], history[0][1], history[0][2], history[0][3], af[0],
+                        mma_bf16_gdn(history[0][0], history[0][1], history[0][2], history[0][3], af[0],
                                  af[1], af[2], af[3], b0, b1);
                     }
                 } else {
@@ -257,7 +258,7 @@ __global__ __launch_bounds__(kThreads<DV>, (DV >= 32 ? 2 : 4)) void chunk_recurr
                     for (int k = 0; k < kStateDim; k += 8) {
                         unsigned af[4];
                         load_vector_tf32_a(qk.k, k, lane, af);
-                        mma_tf32_bits(
+                        mma_tf32_gdn(
                             history[0][0], history[0][1], history[0][2], history[0][3], af[0],
                             af[1], af[2], af[3],
                             __float_as_uint(sm.snapshot[value_index<DV>(k + 2 * t, n * 8 + g)]),
@@ -332,7 +333,7 @@ __global__ __launch_bounds__(kThreads<DV>, (DV >= 32 ? 2 : 4)) void chunk_recurr
             load_transposed_bf16_a(qk.k, key - g, lane, af);
 #pragma unroll
             for (int ni = 0; ni < NPW; ++ni) {
-                mma_bf16(state[ni][mi][0], state[ni][mi][1], state[ni][mi][2], state[ni][mi][3],
+                mma_bf16_gdn(state[ni][mi][0], state[ni][mi][1], state[ni][mi][2], state[ni][mi][3],
                          af[0], af[1], af[2], af[3], delta_b[ni][0], delta_b[ni][1]);
             }
         }
