@@ -1,0 +1,169 @@
+{
+  "counts": {
+    "cold_starts": 2,
+    "requests": 10
+  },
+  "completed_requests": 10,
+  "elapsed_model_seconds": 569.1574590206146,
+  "comparisons": {
+    "warmup": {
+      "both_complete": true,
+      "channels": {
+        "content": {
+          "equal": true,
+          "lengths": [
+            2,
+            2
+          ],
+          "common_prefix_chars": 2,
+          "first_difference_1based": null,
+          "excerpts": []
+        },
+        "reasoning": {
+          "equal": true,
+          "lengths": [
+            0,
+            0
+          ],
+          "common_prefix_chars": 0,
+          "first_difference_1based": null,
+          "excerpts": []
+        }
+      },
+      "actual_requests_equal": true
+    },
+    "short-decode": {
+      "both_complete": true,
+      "channels": {
+        "content": {
+          "equal": true,
+          "lengths": [
+            0,
+            0
+          ],
+          "common_prefix_chars": 0,
+          "first_difference_1based": null,
+          "excerpts": []
+        },
+        "reasoning": {
+          "equal": false,
+          "lengths": [
+            9263,
+            9136
+          ],
+          "common_prefix_chars": 4896,
+          "first_difference_1based": 4897,
+          "excerpts": [
+            "his way the attempt can pass the signal down to fetch, etc. This is a clean approach and allows the in-flight attempt to self-cancel.\n   \n3. **Cancellation duri",
+            "his way the attempt can pass the signal along to fetch, etc. This is clean.\n\n3. **Race semantics after failure + abort.** When an attempt fails and a delay is s"
+          ]
+        }
+      },
+      "actual_requests_equal": true
+    },
+    "long-first": {
+      "both_complete": true,
+      "channels": {
+        "content": {
+          "equal": true,
+          "lengths": [
+            48,
+            48
+          ],
+          "common_prefix_chars": 48,
+          "first_difference_1based": null,
+          "excerpts": []
+        },
+        "reasoning": {
+          "equal": false,
+          "lengths": [
+            1388,
+            1243
+          ],
+          "common_prefix_chars": 79,
+          "first_difference_1based": 80,
+          "excerpts": [
+            "ract verified hotfix IDs for dahlia, elm, fern from OFFICIAL_RELEASE_MANIFEST records in repository_reference. Need output exactly package=hotfix, one per line.",
+            "ract verified hotfix IDs for dahlia, elm and fern from OFFICIAL_RELEASE_MANIFEST records in repository_reference. Need output exactly package=hotfix, one per li"
+          ]
+        }
+      },
+      "actual_requests_equal": true
+    },
+    "long-followup": {
+      "both_complete": true,
+      "channels": {
+        "content": {
+          "equal": true,
+          "lengths": [
+            51,
+            51
+          ],
+          "common_prefix_chars": 51,
+          "first_difference_1based": null,
+          "excerpts": []
+        },
+        "reasoning": {
+          "equal": false,
+          "lengths": [
+            473,
+            773
+          ],
+          "common_prefix_chars": 136,
+          "first_difference_1based": 137,
+          "excerpts": [
+            "cords.\n\nLet me search the reference data for these.\n\nFrom the reference:\n- \"OFFICIAL_RELEASE_MANIFEST: package=aurora; hotfix=PATCH-7319; status=verified.\"\n- \"O",
+            "cords.\n\nLet me search the reference data:\n\n1. aurora: \"OFFICIAL_RELEASE_MANIFEST: package=aurora; hotfix=PATCH-7319; status=verified.\" - found in serving.md und"
+          ]
+        }
+      },
+      "actual_requests_equal": true
+    },
+    "long-decode": {
+      "both_complete": true,
+      "channels": {
+        "content": {
+          "equal": true,
+          "lengths": [
+            0,
+            0
+          ],
+          "common_prefix_chars": 0,
+          "first_difference_1based": null,
+          "excerpts": []
+        },
+        "reasoning": {
+          "equal": false,
+          "lengths": [
+            8913,
+            8823
+          ],
+          "common_prefix_chars": 389,
+          "first_difference_1based": 390,
+          "excerpts": [
+            "lanation + tests. Need think thoroughly.\n\nWe need satisfy: TypeScript generic retry helper. Requirements:\n- exponential backoff\n- cancellation via AbortSignal\n-",
+            "lanation + tests. Need think thoroughly. Need ensure TypeScript generic. Need include concurrency/cancellation edge cases. Need tests maybe using vitest or node"
+          ]
+        }
+      },
+      "actual_requests_equal": true
+    }
+  },
+  "runtime_errors": [],
+  "illegal_token_observed": false,
+  "nan_tensor_status": "UNOBSERVED: uninstrumented q5 release has no tensor capture",
+  "default_package_unchanged": true,
+  "frozen_inputs_unchanged": true,
+  "ability_grading": false,
+  "performance_claim": false,
+  "limitations": [
+    "Swift changes model weights, quantization formats, MTP weights and applicable kernel routes together; not a weight-only intervention.",
+    "No simultaneous Coder390 control in this bounded round. Historical original-package results used a different EXE and DLLs.",
+    "Same-seed comparison is within Swift; different-model output equality is not required.",
+    "A negative result in two repeats does not prove correctness or exclude an intermittent fault.",
+    "NaN tensor finiteness and actual token-ID equality are not captured."
+  ],
+  "test_runtime_unchanged": true,
+  "test_model_stat_unchanged": true,
+  "default_model_stat_unchanged": true
+}

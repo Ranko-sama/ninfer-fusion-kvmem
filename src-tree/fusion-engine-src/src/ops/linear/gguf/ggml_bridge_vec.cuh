@@ -12,6 +12,7 @@
 #include "ggml_bridge_internal.cuh"
 
 #include <algorithm>
+#include <type_traits>
 
 namespace ninfer::ops::gguf::detail {
 
@@ -198,6 +199,36 @@ struct Decoder<GGML_TYPE_Q5_K> {
     }
 };
 
+// The qualified SM75 T5 route reads the complete Q5 scale/min header in one aligned load.
+struct DecoderQ5Packed : Decoder<GGML_TYPE_Q5_K> {
+    __device__ __forceinline__ static void decode(const std::uint8_t* b, int u,
+                                                  const std::uint32_t*, Slice& s) {
+        // Q5 blocks are 176 bytes; an aligned row keeps each 16-byte header aligned.
+        const uint4 header = *reinterpret_cast<const uint4*>(b);
+        const float2 dm = __half22float2(__halves2half2(
+            __ushort_as_half(static_cast<unsigned short>(header.x)),
+            __ushort_as_half(static_cast<unsigned short>(header.x >> 16))));
+        const int shift8 = 8 * (u & 3);
+        const unsigned low = (header.y >> shift8) & 255;
+        const unsigned middle = (header.z >> shift8) & 255;
+        const unsigned high = (header.w >> shift8) & 255;
+        const int sc = u < 4 ? (low & 63) : ((high & 15) | ((low >> 6) << 4));
+        const int m = u < 4 ? (middle & 63) : ((high >> 4) | ((middle >> 6) << 4));
+        s.f[0]          = dm.x * float(sc);
+        s.f[1]          = dm.y * float(m);
+        const uint4* qh = reinterpret_cast<const uint4*>(b + 16);
+        const uint4* ql = reinterpret_cast<const uint4*>(b + 48 + 32 * (u / 2));
+        const uint4 h0 = qh[0], h1 = qh[1], l0 = ql[0], l1 = ql[1];
+        const std::uint32_t hv[8] = {h0.x, h0.y, h0.z, h0.w, h1.x, h1.y, h1.z, h1.w};
+        const std::uint32_t lv[8] = {l0.x, l0.y, l0.z, l0.w, l1.x, l1.y, l1.z, l1.w};
+        const int shift = 4 * (u & 1);
+#pragma unroll
+        for (int i = 0; i < 8; ++i) {
+            s.w[i] = int(((lv[i] >> shift) & 0x0F0F0F0Fu) | (((hv[i] >> u) << 4) & 0x10101010u));
+        }
+    }
+};
+
 template <>
 struct Decoder<GGML_TYPE_Q6_K> {
     static constexpr int kBlockElems = 256, kBlockBytes = 210, kTableWords = 0;
@@ -221,6 +252,38 @@ struct Decoder<GGML_TYPE_Q6_K> {
     }
     __device__ __forceinline__ static float dot(const Slice& s, const int* a, float d, float) {
         return d * (s.f[0] * float(dot4(s.w, a, 0)) + s.f[1] * float(dot4(s.w + 4, a + 4, 0)));
+    }
+};
+
+// SM75's T5 Q6 products have the same two-byte block alignment as Q3. Preserve the
+// original scales/dot, but reconstruct both 32-byte code windows from aligned words.
+// launch_k admits only dense, four-byte-aligned rows. An odd block's b-2 load is
+// inside that row; the furthest extra word ends at b+195 inside the 210-byte block.
+struct DecoderQ6Aligned : Decoder<GGML_TYPE_Q6_K> {
+    __device__ __forceinline__ static void decode(const std::uint8_t* b, int u,
+                                                  const std::uint32_t*, Slice& s) {
+        const int h = u / 4, q = u % 4;
+        const float d = half_at(b + 208);
+        const auto* sc = reinterpret_cast<const std::int8_t*>(b + 192 + 8 * h);
+        s.f[0] = d * float(sc[2 * q]);
+        s.f[1] = d * float(sc[2 * q + 1]);
+        const auto address = reinterpret_cast<std::uintptr_t>(b);
+        const auto* base = reinterpret_cast<const std::uint32_t*>(b - (address & 3));
+        const unsigned selector = (address & 2) ? 0x5432u : 0x3210u;
+        std::uint32_t low_raw[9], high_raw[9];
+#pragma unroll
+        for (int i = 0; i < 9; ++i) {
+            low_raw[i] = base[16 * h + 8 * (q & 1) + i];
+            high_raw[i] = base[32 + 8 * h + i];
+        }
+#pragma unroll
+        for (int i = 0; i < 8; ++i) {
+            const std::uint32_t lo = __byte_perm(low_raw[i], low_raw[i + 1], selector);
+            const std::uint32_t hi = __byte_perm(high_raw[i], high_raw[i + 1], selector);
+            const std::uint32_t v = ((lo >> (4 * (q >> 1))) & 0x0F0F0F0Fu) |
+                                    (((hi >> (2 * q)) << 4) & 0x30303030u);
+            s.w[i] = int(v ^ 0xE0E0E0E0u ^ ((v & 0x20202020u) * 6u));
+        }
     }
 };
 
@@ -271,6 +334,38 @@ struct Decoder<GGML_TYPE_Q3_K> {
     }
     __device__ __forceinline__ static float dot(const Slice& s, const int* a, float d, float) {
         return d * (s.f[0] * float(dot4(s.w, a, 0)) + s.f[1] * float(dot4(s.w + 4, a + 4, 0)));
+    }
+};
+
+// SM75's five-column Q3 parent product spends many load instructions reconstructing
+// two-byte-aligned words. Read each 32-byte window with nine aligned words instead.
+// launch_k admits only aligned, dense rows: an odd 110-byte block can read b-2,
+// which is inside that row; the last word ends at b+99, inside the same block.
+// Inherit the original scales, dot product and floating-point accumulation semantics.
+struct DecoderQ3Aligned : Decoder<GGML_TYPE_Q3_K> {
+    __device__ __forceinline__ static void decode(const std::uint8_t* b, int u,
+                                                  const std::uint32_t*, Slice& s) {
+        const int h = u / 4, j = u % 4;
+        const float d = half_at(b + 108);
+        s.f[0] = d * float(scale(b, 8 * h + 2 * j));
+        s.f[1] = d * float(scale(b, 8 * h + 2 * j + 1));
+        const auto address = reinterpret_cast<std::uintptr_t>(b);
+        const auto* base = reinterpret_cast<const std::uint32_t*>(b - (address & 3));
+        const unsigned selector = (address & 2) ? 0x5432u : 0x3210u;
+        std::uint32_t hm_raw[9], qs_raw[9];
+#pragma unroll
+        for (int i = 0; i < 9; ++i) {
+            hm_raw[i] = base[i];
+            qs_raw[i] = base[8 + 8 * h + i];
+        }
+#pragma unroll
+        for (int i = 0; i < 8; ++i) {
+            const std::uint32_t hm = __byte_perm(hm_raw[i], hm_raw[i + 1], selector);
+            const std::uint32_t qs = __byte_perm(qs_raw[i], qs_raw[i + 1], selector);
+            const std::uint32_t v = ((qs >> (2 * j)) & 0x03030303u) |
+                (((hm >> (4 * h + j)) & 0x01010101u) << 2);
+            s.w[i] = int(v ^ 0xFCFCFCFCu ^ ((v & 0x04040404u) * 0x3Eu));
+        }
     }
 };
 
@@ -456,9 +551,15 @@ struct Decoder<GGML_TYPE_IQ1_M> {
 
 // KS: the static K the slice loop unrolls over, or 0 for the runtime K. Fused: the weight is one
 // [gate; up] parent and each output row is silu(gate row) * up row.
-template <ggml_type type, int T, bool Fused, int KS>
+template <ggml_type type, int T, bool Fused, int KS, bool AlignedQ3 = false,
+          bool AlignedQ6 = false, bool PackedQ5 = false>
 __launch_bounds__(kVecWarps * 32) __global__ void kernel(VecArgs p) {
-    using D                 = Decoder<type>;
+    static_assert(!AlignedQ3 || (type == GGML_TYPE_Q3_K && T == 5 && Fused && KS == 0));
+    static_assert(!AlignedQ6 || (type == GGML_TYPE_Q6_K && T == 5 && !Fused && KS == 0));
+    static_assert(!PackedQ5 || (type == GGML_TYPE_Q5_K && T == 5 && !Fused && KS == 0));
+    using D = std::conditional_t<PackedQ5, DecoderQ5Packed,
+                                std::conditional_t<AlignedQ3, DecoderQ3Aligned,
+                                std::conditional_t<AlignedQ6, DecoderQ6Aligned, Decoder<type>>>>;
     constexpr int kTable    = D::kTableWords > 0 ? D::kTableWords : 4;
     constexpr int kPerBlock = D::kBlockElems / 32;
     constexpr int kRows     = 2;
@@ -550,11 +651,12 @@ __launch_bounds__(kVecWarps * 32) __global__ void kernel(VecArgs p) {
     }
 }
 
-template <ggml_type type, int T, bool Fused, int KS>
+template <ggml_type type, int T, bool Fused, int KS, bool AlignedQ3 = false,
+          bool AlignedQ6 = false, bool PackedQ5 = false>
 void launch(const VecArgs& args, cudaStream_t stream) {
     static const int resident = [] {
         int blocks = 0;
-        check(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks, kernel<type, T, Fused, KS>,
+        check(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks, kernel<type, T, Fused, KS, AlignedQ3, AlignedQ6, PackedQ5>,
                                                             kVecWarps * 32, 0),
               "vector occupancy");
         return std::max(blocks, 1);
@@ -562,12 +664,38 @@ void launch(const VecArgs& args, cudaStream_t stream) {
     const int per_block = kVecWarps * (Fused ? 1 : 2);
     const int groups    = (args.rows + per_block - 1) / per_block;
     const int blocks    = std::min(groups, resident * device_facts().sm_count);
-    kernel<type, T, Fused, KS><<<blocks, kVecWarps * 32, 0, stream>>>(args);
+    kernel<type, T, Fused, KS, AlignedQ3, AlignedQ6, PackedQ5><<<blocks, kVecWarps * 32, 0, stream>>>(args);
     check(cudaGetLastError(), "vector product launch");
 }
 
 template <ggml_type type, int T, bool Fused>
 void launch_k(const VecArgs& args, cudaStream_t stream) {
+#if defined(NINFER_SM75)
+    // Qualify the measured runtime-K path without changing other widths, layouts or devices.
+    if constexpr (type == GGML_TYPE_Q3_K && T == 5 && Fused) {
+        if (device_facts().cc == 750 && args.k == 5120 && args.row_bytes == 2200 &&
+            (reinterpret_cast<std::uintptr_t>(args.weight) & 3) == 0) {
+            return launch<type, T, Fused, 0, true>(args, stream);
+        }
+    }
+    if constexpr (type == GGML_TYPE_Q5_K && T == 5 && !Fused) {
+        if (device_facts().cc == 750 && args.rows == 5120 &&
+            (args.k == 6144 || args.k == 17408) &&
+            args.row_bytes == std::int64_t(args.k / 256) * 176 &&
+            (reinterpret_cast<std::uintptr_t>(args.weight) & 15) == 0) {
+            return launch<type, T, Fused, 0, false, false, true>(args, stream);
+        }
+    }
+    if constexpr (type == GGML_TYPE_Q6_K && T == 5 && !Fused) {
+        if (device_facts().cc == 750 && args.rows == 5120 &&
+            (args.k == 6144 || args.k == 17408) &&
+            args.row_bytes == std::int64_t(args.k / 256) * 210 &&
+            (args.row_bytes & 3) == 0 &&
+            (reinterpret_cast<std::uintptr_t>(args.weight) & 3) == 0) {
+            return launch<type, T, Fused, 0, false, true>(args, stream);
+        }
+    }
+#endif
     if constexpr (kVecStaticK<type>) {
         switch (args.k) {
         case 5120: return launch<type, T, Fused, 5120>(args, stream);

@@ -12,6 +12,9 @@ def sha(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
+def cached_tokens(result):
+    return result.get('usage',{}).get('prompt_tokens_details',{}).get('cached_tokens')
+
 def make_tasks():
     integer = next(n for n in range(10001, 1000000) if n % 7 == 3 and n % 11 == 5 and n % 13 == 9 and n % 9 == 4)
     # P(mixed | A)=8/15, P(mixed | B)=2/5, P(A | mixed)=4/7.
@@ -58,7 +61,7 @@ def make_cases():
     def ref(target, patch):
         if not isinstance(patch, dict): return copy.deepcopy(patch)
         original = target if isinstance(target,dict) else {}
-        keys = original.keys() | patch.keys()
+        keys = sorted(original.keys() | patch.keys())
         return {k:ref(original.get(k),patch[k]) if k in patch else copy.deepcopy(original[k])
                 for k in keys if k not in patch or patch[k] is not None}
     def value(depth=0):
@@ -151,6 +154,12 @@ def main():
     parser.add_argument('--candidate-exe', type=Path)
     parser.add_argument('--baseline-profile', type=Path)
     parser.add_argument('--candidate-profile', type=Path)
+    parser.add_argument('--baseline-chunk', type=int, default=384)
+    parser.add_argument('--candidate-chunk', type=int, default=384)
+    parser.add_argument('--baseline-draft-tokens', type=int, default=4)
+    parser.add_argument('--candidate-draft-tokens', type=int, default=4)
+    parser.add_argument('--prompt-prefix', type=Path,
+                        help='Prepend identical reference text to both versions; a per-task header prevents cross-task prefix reuse')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--context', type=int, default=102400)
     args = parser.parse_args()
@@ -164,40 +173,72 @@ def main():
         print('Fixture checks passed: 6 tasks, 447 code cases.'); return
     for name in ('model','baseline_exe','candidate_exe','baseline_profile','candidate_profile','output'):
         if getattr(args,name) is None: parser.error('--'+name.replace('_','-')+' is required')
+    for name in ('baseline_chunk','candidate_chunk'):
+        if getattr(args,name) <= 0 or getattr(args,name) % 128:
+            parser.error('--'+name.replace('_','-')+' must be a positive multiple of 128')
+    for name in ('baseline_draft_tokens','candidate_draft_tokens'):
+        if not 1 <= getattr(args,name) <= 15:
+            parser.error('--'+name.replace('_','-')+' must be in [1,15] for MTP')
     model = args.model.resolve(strict=True)
     binaries = {'old':args.baseline_exe.resolve(strict=True),'new':args.candidate_exe.resolve(strict=True)}
     sources = {'old':args.baseline_profile.resolve(strict=True),'new':args.candidate_profile.resolve(strict=True)}
+    server_parameters = {
+        'old':{'prefill_chunk':args.baseline_chunk,'draft_tokens':args.baseline_draft_tokens},
+        'new':{'prefill_chunk':args.candidate_chunk,'draft_tokens':args.candidate_draft_tokens}}
+    permitted_flags = [flag for key,flag in (
+        ('prefill_chunk','--prefill-chunk'),('draft_tokens','--draft-tokens'))
+        if server_parameters['old'][key] != server_parameters['new'][key]]
+    prefix_source = args.prompt_prefix.resolve(strict=True) if args.prompt_prefix else None
     output = args.output.resolve(); output.mkdir(parents=True,exist_ok=False)
     write(output/'tasks.json',tasks); write(output/'code-cases.json',cases)
+    prefix = None
+    if prefix_source:
+        shutil.copy2(prefix_source,output/'prompt-prefix.txt')
+        prefix = (output/'prompt-prefix.txt').read_text(encoding='utf-8')
+        if not prefix.strip(): raise ValueError('--prompt-prefix must contain nonempty text')
     profiles = {}
     for v,p in sources.items():
         profiles[v] = output/(v+'-device-profiles.json'); shutil.copy2(p,profiles[v])
     manifest = {'complete':False,'scope':'6 tasks, one greedy completion per task/version; not general intelligence equivalence.',
                 'model':str(model),'context':args.context,
+                'server_parameters':server_parameters,'permitted_parameter_differences':permitted_flags,
+                'prompt_prefix':None if prefix_source is None else {
+                    'source':str(prefix_source),'sha256':sha(output/'prompt-prefix.txt'),
+                    'task_header':'Per-task ID precedes reference text to avoid a reusable long prefix'},
                 'parameters':{'temperature':0,'top_p':.95,'top_k':20,'seed':42,'reasoning_effort':'medium','max_tokens':6144},
                 'tasks_sha256':sha(output/'tasks.json'),'cases_sha256':sha(output/'code-cases.json'),
                 'binaries':{v:{'path':str(p),'sha256':sha(p)} for v,p in binaries.items()},
-                'profile_sha256':{v:sha(p) for v,p in profiles.items()},'runs':[]}
+                'profile_sha256':{v:sha(p) for v,p in profiles.items()},
+                'profile_sources':{v:{'path':str(p),'sha256':sha(p)} for v,p in sources.items()},'runs':[]}
     write(output/'manifest.json',manifest)
     for version in ('old','new'):
         folder=output/version; folder.mkdir()
         for port in (3683,3684):
             with socket.socket() as s: s.bind(('127.0.0.1',port))
-        active=output/'active-device-profiles.json'; shutil.copy2(profiles[version],active)
+        active=folder/'device-profiles.json'; shutil.copy2(profiles[version],active)
         env={k.upper():v for k,v in os.environ.items() if not k.upper().startswith('NINFER_')}
-        env.update(NINFER_PREFILL_ALIGN='0',NINFER_DEVICE_PROFILES=str(active),LOCALAPPDATA=str(output/'runtime-cache'))
+        env.update(NINFER_PREFILL_ALIGN='0',NINFER_DEVICE_PROFILES=str(active),LOCALAPPDATA=str(folder/'runtime-cache'))
+        parameters=server_parameters[version]
         command=[str(binaries[version]),str(model),'--host','127.0.0.1','--port','3683','--stats-port','3684',
                  '--model-id','qwen3.8-27b','--max-context',str(args.context),'--kv-capacity',str(args.context),
-                 '--kv-dtype','rk8v4','--host-kv-mib','0','--prefill-chunk','384','--device-state-slots','0',
-                 '--gdn-state-fp16','--spec','mtp','--draft-tokens','4','--ngram-draft-tokens','0',
+                 '--kv-dtype','rk8v4','--host-kv-mib','0','--prefill-chunk',str(parameters['prefill_chunk']),'--device-state-slots','0',
+                 '--gdn-state-fp16','--spec','mtp','--draft-tokens',str(parameters['draft_tokens']),'--ngram-draft-tokens','0',
                  '--default-max-tokens','94208','--default-reasoning-effort','xhigh','--max-concurrency','1',
                  '--max-shared-prefixes','0','--temperature','1','--top-p','.95','--top-k','20',
                  '--device-profile','auto','--cuda-graph-allowance-mib','128','--seed','42',
                  '--request-log-jsonl',str(folder/'requests.jsonl')]
         write(folder/'command.json',command)
-        run={'version':version,'complete':False,'results':[]}; manifest['runs'].append(run)
+        write(folder/'environment.json',{k:v for k,v in env.items() if k.startswith('NINFER_')})
+        run={'version':version,'complete':False,'parameters':parameters,'results':[],
+             'audit':{'cold_requests':True}}; manifest['runs'].append(run)
         process=None
         try:
+            run['executable_sha256_before']=sha(binaries[version])
+            run['profile_sha256_before']=sha(active)
+            run['audit']['executable_matches_before']=(run['executable_sha256_before']==manifest['binaries'][version]['sha256'])
+            run['audit']['profile_matches_before']=(run['profile_sha256_before']==manifest['profile_sha256'][version]
+                ==manifest['profile_sources'][version]['sha256']==sha(sources[version]))
+            if not all(run['audit'].values()): raise RuntimeError('Quality test inputs changed before launch')
             with (folder/'stdout.log').open('w') as stdout,(folder/'stderr.log').open('w') as stderr:
                 process=subprocess.Popen(command,cwd=binaries[version].parent,env=env,stdout=stdout,stderr=stderr,creationflags=CREATE_NO_WINDOW)
             deadline=time.monotonic()+600
@@ -209,11 +250,20 @@ def main():
                 except OSError: pass
                 time.sleep(1)
             else: raise TimeoutError('ready timeout')
-            generate(folder,'warmup',[{'role':'user','content':'What is 17 + 25? Reply with the number only.'}],64,temperature=0,reasoning_effort='none')
+            warmup=generate(folder,'warmup',[{'role':'user','content':'What is 17 + 25? Reply with the number only.'}],64,temperature=0,reasoning_effort='none')
+            run['audit']['warmup_arithmetic']=warmup['content'].strip()=='42'
             for task in tasks:
                 parameters=dict(manifest['parameters']); limit=parameters.pop('max_tokens')
-                result=generate(folder,task['id'],[{'role':'user','content':task['prompt']}],limit,**parameters)
-                grade={'id':task['id'],'finish':result['finish'],'tokens':result['usage'].get('completion_tokens'),'wall_s':result['wall_s']}
+                prompt=task['prompt'] if prefix is None else (
+                    f'Quality case {task["id"]}. Reference text follows; answer the task after it.\n'
+                    f'<reference>\n{prefix}\n</reference>\n\nTask:\n{task["prompt"]}')
+                result=generate(folder,task['id'],[{'role':'user','content':prompt}],limit,**parameters)
+                grade={'id':task['id'],'finish':result['finish'],'tokens':result['usage'].get('completion_tokens'),
+                       'prompt_tokens':result['usage'].get('prompt_tokens'),'cached_tokens':cached_tokens(result),
+                       'completion_tokens':result['usage'].get('completion_tokens'),
+                       'reasoning_tokens':result['usage'].get('completion_tokens_details',{}).get('reasoning_tokens'),
+                       'request_sha256':sha(folder/(task['id']+'.request.json')),'wall_s':result['wall_s']}
+                run['audit']['cold_requests'] &= grade['cached_tokens']==0
                 content=strip_fence(result['content'])
                 if result['finish']!='stop': grade.update(passed=False,error='Incomplete answer / token cap')
                 elif task['kind']=='answer':
@@ -230,15 +280,24 @@ def main():
                     except subprocess.TimeoutExpired: grade.update(passed=False,error='Code exceeded 20 second test limit')
                 run['results'].append(grade); write(output/'manifest.json',manifest)
                 print(version,task['id'],json.dumps(grade),flush=True)
-            run['profile_sha256_after']=sha(active)
-            if sha(active)!=manifest['profile_sha256'][version]: raise RuntimeError('Device profile changed during test')
             run['complete']=True
+        except BaseException as error:
+            run['error']=repr(error)
+            raise
         finally:
             if process is not None and process.poll() is None:
                 process.terminate()
                 try: process.wait(timeout=20)
                 except subprocess.TimeoutExpired: process.kill();process.wait(timeout=10)
+            run['executable_sha256_after']=sha(binaries[version])
+            run['profile_sha256_after']=sha(active)
+            run['profile_source_sha256_after']=sha(sources[version])
+            run['audit']['executable_unchanged']=(run['executable_sha256_after']==manifest['binaries'][version]['sha256'])
+            run['audit']['profile_unchanged']=(run['profile_sha256_after']==manifest['profile_sha256'][version])
+            run['audit']['profile_source_unchanged']=(run['profile_source_sha256_after']==manifest['profile_sources'][version]['sha256'])
+            if not all(run['audit'].values()): run['complete']=False
             write(output/'manifest.json',manifest)
+        if not run['complete']: raise RuntimeError(f'Quality run audit failed: {version}')
     same_requests=True; comparison={}
     for t in tasks:
         key=t['id']
@@ -246,8 +305,27 @@ def main():
         same_requests &= read('old','.request.json')==read('new','.request.json')
         a,b=read('old','.result.json'),read('new','.result.json')
         comparison[key]={'final_content_identical':a['content']==b['content'],'reasoning_text_identical':a['reasoning']==b['reasoning']}
-    manifest.update(complete=True,same_requests=same_requests,output_comparison=comparison)
+    def comparable_command(version):
+        value=json.loads((output/version/'command.json').read_text(encoding='utf-8'))
+        value[0]='<engine>'
+        for flag in ['--request-log-jsonl']+permitted_flags:
+            value[value.index(flag)+1]='<'+flag.removeprefix('--')+'>'
+        return value
+    def comparable_environment(version):
+        value=json.loads((output/version/'environment.json').read_text(encoding='utf-8'))
+        value['NINFER_DEVICE_PROFILES']='<device-profile>'
+        return value
+    audit={'same_requests':same_requests,
+           'same_command_except_declared_parameters':comparable_command('old')==comparable_command('new'),
+           'same_environment_except_profile_path':comparable_environment('old')==comparable_environment('new'),
+           'tasks_unchanged':sha(output/'tasks.json')==manifest['tasks_sha256'],
+           'cases_unchanged':sha(output/'code-cases.json')==manifest['cases_sha256'],
+           'all_runs_verified':all(run['complete'] and all(run['audit'].values()) for run in manifest['runs'])}
+    if prefix_source:
+        audit['prefix_unchanged']=(sha(output/'prompt-prefix.txt')==manifest['prompt_prefix']['sha256']==sha(prefix_source))
+    manifest.update(complete=all(audit.values()),same_requests=same_requests,audit=audit,output_comparison=comparison)
     write(output/'manifest.json',manifest)
+    if not manifest['complete']: raise RuntimeError('Quality comparison audit failed')
     print('Completed. Compare task scores and failures in',output/'manifest.json')
 
 

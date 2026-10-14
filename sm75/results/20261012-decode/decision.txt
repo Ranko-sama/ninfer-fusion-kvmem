@@ -1,0 +1,80 @@
+2026-10-12—13：保持默认参数的 SM75 Q3 解码优化
+
+决定：候选通过正式采用门槛；本地切换的完成凭据以 deployment.json 为准。
+本报告在切换前冻结；发布状态另存，发布后不改写本报告。
+
+最终采用的代码
+ggml_bridge_vec.cuh 的 DecoderQ3Aligned 用对齐的 32 位窗口加载和 byte_perm，
+恢复与旧实现完全相同的 Q3 权重字节。仅在 SM75、Q3_K fused T5、runtime K5120、
+dense row_bytes2200、权重基址四字节对齐时启用；其他路径完整保留。
+量化格式、权重内容、BF16→q8边界、DP4A、FP32累加顺序、归约及输出存储均不变。
+没有权重重打包、模型裁剪、精度降低、推测接受规则或启动参数调整。
+
+第一性原理与证据
+已有时间线中，Q3 T5融合投影约占短解码时间21%；优化总收益受这一占比约束。
+110字节的Q3块导致半字对齐读取。改动将主循环全局加载指令89→61，
+保留80条DP4A、20条FFMA、14条FMUL和50条完整归约SHFL；寄存器仍128，零spill。
+实际生产aligned全部1520条SASS指令与所选探针逐条相同，fallback与旧探针逐条相同。
+这支持减少加载指令开销的解释；驱动拒绝Nsight硬件计数器访问，未修改驱动设置，
+不能据此声称已测得DRAM利用率或某种精确stall占比。
+所选global探针两轮局部延迟下降18.25%/17.53%；这些不是整机收益。
+
+同参数整机对照：中位数 [最小值, 最大值]，变化为new/old−1。
+短生成 tok/s: 46.370 [46.355, 46.466] → 48.109 [47.995, 48.309]；+3.75%
+95K后长生成 tok/s: 32.664 [31.119, 33.306] → 35.417 [27.176, 38.069]；+8.43%
+95K首token s: 177.830 [177.022, 179.022] → 178.113 [177.906, 184.165]；+0.16%
+95K prefill tok/s: 534.557 [531.068, 536.999] → 533.711 [516.154, 534.329]；-0.16%
+缓存追问首token s: 0.670 [0.670, 0.686] → 0.678 [0.670, 0.788]；+1.18%
+
+生成轨迹与每轮耗时（日志内部decode窗口，不能替代上表API计时）：
+短生成: 单轮耗时 57.5351 → 55.4562 ms（-3.61%）；有效产出 2.6688 → 2.6688 token/round；六轮正文+推理全部一致=True。
+长生成: 单轮耗时 70.6341 → 68.7855 ms（-2.62%）；有效产出 2.3078 → 2.4369 token/round；六轮正文+推理全部一致=False。
+长生成若同时改变每轮产出，API吞吐变化包含MTP轨迹差异，不能全部归因于矩阵内核。
+中位数的比值不构成逐请求精确分解；上述单轮耗时也不是纯GPU内核计时。
+第3轮候选长生成 27.176 tok/s，整轮显存峰值 22053 MiB；
+该轮出现额外耗时及显存占用波动，原样纳入统计，没有剔除。原因未确定，
+不能据此认定是外部进程干扰，也不能把长生成中位数提升描述为稳定的逐次收益。
+
+公开算子对照：完整BF16输入→Q3父SwiGLU→BF16输出，父矩阵34816×5120，T5。
+eager: 0.319368 → 0.265985 ms；延迟变化 -16.72%。
+graph: 0.316876 → 0.266359 ms；延迟变化 -15.94%。
+七组交替配对，每次独立稳定预热；所有输出指纹一致。指纹比较仅为补充证据。
+
+正确性与质量回归
+基线及候选均通过15种原有GGUF格式的公开Op测试。新增独立CPU Q3解码/FP64数学oracle：
+N37覆盖T1/4/5/6/8、gather graph双输入与+2字节错位地址回退；N128覆盖T8/9边界；
+上述小矩阵全输出元素核对。真实N17408/T5覆盖eager和graph双输入，FP64核对8个
+完整输出行，每行覆盖所有K及所有token；全部GPU输出另做finite、guard与输入不变检查。
+真实尺寸不是全元素FP64oracle。前两次基线试跑是MMQ测试fixture行数非法，
+修正为每个gate/up投影N128后全套通过，未更改产品支持范围或放宽误差界。
+quality-short: 任务 5/6 → 5/6；代码用例 444/447 → 444/447；正文+推理一致 5/6。
+  merge-patch: 共同失败[2, 49, 88]，新增失败[]，解决[]（索引从0开始）。
+quality-context: 任务 5/6 → 5/6；代码用例 444/447 → 444/447；正文+推理一致 3/6。
+  merge-patch: 共同失败[2, 49, 88]，新增失败[]，解决[]（索引从0开始）。
+三张视觉转录、算术、工具、取消及重试、95K记录检索检查均通过；六轮性能检索36/36正确。
+质量请求两版均temperature0/medium；日常temperature1/xhigh默认不变。
+本测试范围内无新增失败，不将有限样本描述为所有任务能力等价或普遍能力提升。
+
+对照条件与读数边界
+chunk384 / MTP4 / RK8V4 / FP16 GDN / 102400全GPU KV / host KV0 / 并发1 / ALIGN0 / ring关闭；
+graph128MiB、temperature1、top_p0.95、top_k20、xhigh保持当前默认。
+同一模型、DLL、profile、请求与seed；整机顺序old,new,new,old,old,new，每版3次独立重启。
+短/长生成固定2048 token，95K首问cold cache。三阶段首尾哈希一致。
+整机主表使用API predicted_per_second；日志内部decode窗口的round ms仅作另一个诊断口径。
+有效发布token/round包含fallback并扣除首token，不能用speculative rounds代替全部decode rounds。
+输出轨迹、MTP接受率和GPU全轮采样见performance-details.json；整轮采样不代表精确阶段等频。
+原performance.py通用说明中的“各自库/路由”不适用于本轮，以同一DLL/profile哈希为准。
+
+未采用的方向
+符号扩展化简、逐列activation调度、Rows1调度出现真实热点回退；不进入生产。
+DP4A拆链/Q6增大grid仅小幅局部收益，未叠加；MinBlocks5/6只编译未GPU实测。
+先前static-K/unroll负结果沿用，不重复包装成新优化。详见q3-aligned-analysis.txt与probe-summary.json。
+
+产物与复现
+基线：releases/fusion-43c39c6-sm75-prefetch；新包：releases/fusion-43c39c6-sm75-q3load。
+候选EXE SHA256: 152d02bcfa3cc5c5bb62e40a01f6cd4ee162f9d4d7228f5db5d9581b45aedb3b
+生产源码SHA256: 896f4998205f70ffdabba9d7b9e957aee4f29ff9cf8703e28a800fae3f4a5c9d
+源码与测试patch：candidate-engine.patch；资格绑定：source-and-op-validation.json。
+采用门槛与原始证据SHA：audit-results.json/adoption；切换/备份/回滚：deployment.json。
+两份BAT仅切换engine/profile包目录，默认参数字节保持不变；旧prefetch包保留。
+适用范围：本机RTX2080Ti 22GB及当前模型、上述参数，不外推到其他GPU或任意模型。

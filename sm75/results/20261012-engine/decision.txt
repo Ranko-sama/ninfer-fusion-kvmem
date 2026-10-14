@@ -1,0 +1,64 @@
+2026-10-12：保持默认参数的 SM75 引擎代码优化
+
+决定：采纳 raw KV 预取优化。95K 首 token 中位数 182.342 → 178.631 秒，时延下降 2.04%，减少 3.711 秒。
+正式本地切换的完成凭据见 deployment.json；上一运行包保留。
+
+实现与第一性原理
+单次请求时间由各阶段耗时之和决定；优化幅度受该阶段占比约束。
+实测短/长 decode 的量化 vector 分别占 GPU kernel 时间 93.92%/76.24%；
+95K prefill 的量化 MMQ 和 attention 分别占 55.54%/36.17%。CPU 和传输不是首要瓶颈。
+Q3 静态 K/展开候选在真实 MTP4 的 T5 热点上慢 2.58%～5.15%，故未进入生产代码。
+保留的改动位于 prompt_i8.cuh：SM75 INT8-key 路径提前读取下一 tile 的原始 KV 到寄存器，
+利用当前 QK/softmax/V 解码计算覆盖部分读取等待，在原来的 barrier 后发布到 shared。
+保留量化格式、QK/softmax/PV 精度与计算边界、mask、缓存内容和同步；不是减少工作量。
+目标 kernel 寄存器仍为 120，共享内存仍为 55552 B；其他架构及 packed-key 路径维持原路径。
+完整瓶颈预算、被否决方案和后续优先级见 bottleneck-analysis.md。
+
+冻结的对照条件
+chunk 384 / MTP K4 / RK8V4 / FP16 GDN / 102400 全 GPU KV / host KV 0 / 并发1 / ring关闭；
+ALIGN=0、graph128MiB、temperature1、top_p0.95、top_k20、xhigh均保持原配置。
+同一模型、DLL、device profile、请求、seed与缓存条件；只有 engine EXE 不同。
+顺序 old,new,new,old,old,new；每版3轮、独立重启。启动/加载不计入请求时间。
+短/长生成均固定2048 token；95K首问均cold cache。首尾EXE/模型/profile/DLL哈希审计通过。
+本轮 DLL/profile 相同：原 performance.py 通用模板中的“各自库/路由”描述不适用于本轮；
+请以 phase 文件的同一性哈希、audit-results 和本报告为准。
+
+整机读数：中位数 [最小值, 最大值]；变化为 new/old-1。
+短生成 tok/s: 46.208 [46.189, 46.245] → 46.181 [46.116, 46.195]；-0.06%
+95K 首 token s: 182.342 [182.212, 182.409] → 178.631 [178.453, 178.654]；-2.04%
+95K prefill tok/s: 521.329 [521.129, 521.708] → 532.156 [532.109, 532.687]；+2.08%
+95K 记录回答生成 tok/s: 56.557 [56.542, 61.002] → 56.527 [53.244, 56.550]；-0.05%
+缓存追问首 token s: 0.697 [0.677, 0.707] → 0.688 [0.679, 0.688]；-1.30%
+95K 后长生成 tok/s: 32.441 [30.450, 32.458] → 32.463 [32.416, 33.469]；+0.07%
+
+生成读数与输出轨迹、MTP产出相关，不将波动直接归因于本次 prompt 内核。每轮成本、
+含fallback的decode轮数、实际发布token/轮和输出SHA见 performance-details.json/.txt。
+本报告主表采用API predicted_per_second；每轮分析使用请求日志decode时间，两种计时口径不混用。
+GPU频率/温度为全轮高util采样，不能据此宣称精确decode阶段等频。
+
+公开算子微基准（ABBA，cold L2、CUDA Graph、每观察51样本中位数）
+RK8V4 H24/KV4/D256、width384：8K/32K/95K算子时延分别下降8.12%/7.94%/8.38%。
+384上下文首个基线出现时钟爬升，已排除相对收益声明。约8%不是整机收益。
+
+正确性与能力回归
+full attention、INT8 prompt、packed-GQA公开Op契约均通过。新增31/32/33、63/64/65
+边界、碎片化物理页、384 append/graph replay，以及95K历史测试。
+95K执行完整384个GPU query token；独立FP64核对首尾两个完整query token的全部head/
+dimension与完整可见历史；全输出finite、cache/input不变与guard检查另行覆盖，非全384行FP64。
+短输入：双方5/6任务、444/447代码用例；正文/推理6/6逐字相同；merge-patch共用失败[2,49,88]。
+约9K前缀：旧5/6任务、444/447，新6/6、447/447；正文/推理5/6逐字相同。
+上述质量请求双方均temperature0/medium，未改变日常temperature1/xhigh默认。
+三张视觉精确转录、工具、算术、mid-prefill取消与两次重试、95K前后记录全部通过。
+六轮性能记录检索共36/36正确；所有固定长度与cold/cache审计通过。
+因此本测试集无新增失败。长输入轨迹差异尚未定位，不能保证逐token/bitwise一致；
+447与444的差异不证明普遍能力提升，小样本也不证明所有任务能力等价。
+
+发布与复现
+候选/新运行包 EXE SHA256: f99b9d254f5adb1ed89e5acb15611d2dca61fa0df71ce6717790d1bbb200cb53
+旧运行包: releases/fusion-43c39c6-sm75-perf；新包: releases/fusion-43c39c6-sm75-prefetch。
+两份启动BAT仅切换engine/profile包目录；所有参数字节不变。实际发布记录见deployment.json。
+启动器备份与恢复清单：launchers-before-code-optimization/entrypoints.json；旧包不会被覆盖。
+父提交与生产/测试patch、源文件SHA见source-and-op-validation.json与engine-change.patch。
+原始日志：benchmarks/engine-optimization-20261012；视觉日志位于源码仓库
+artifacts/validation/engine-earlyfetch-vision-95k-20261012。
+适用范围：本机RTX2080Ti 22GB、此模型及上述参数；不外推到其他模型、GPU或任意请求。

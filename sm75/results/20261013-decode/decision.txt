@@ -1,0 +1,60 @@
+2026-10-13：以 q3load 为基线的解码优化与波动排查
+采用 Q6 加载候选。
+默认参数、模型、量化、DLL和device profile不变。全程串行使用GPU，没有修改其他应用或系统GPU设置。
+
+同参数六轮，old/new/new/old/old/new，每版三轮，各轮重启。未剔除慢样本。
+API吞吐包含MTP产出率变化；内部round_ms为实际decode总时间/轮数。
+short-decode/api_decode_tok_s: old 48.338656 [46.689008, 48.361049], new 48.553784 [47.726141, 48.614143], new/old-1=+0.4450%
+short-decode/round_ms: old 55.193424 [55.168559, 55.195339], new 54.946177 [54.880240, 55.105872], new/old-1=-0.4480%
+short-decode/effective_published_tokens_per_round: old 2.668840 [2.578086, 2.668840], new 2.668840 [2.631105, 2.668840], new/old-1=+0.0000%
+long-decode/api_decode_tok_s: old 33.692617 [33.561821, 37.661701], new 33.908987 [33.889229, 34.694608], new/old-1=+0.6422%
+long-decode/round_ms: old 68.604425 [68.475137, 68.743360], new 68.079420 [68.040046, 68.188106], new/old-1=-0.7653%
+long-decode/effective_published_tokens_per_round: old 2.307779 [2.307779, 2.584596], new 2.307779 [2.307779, 2.366474], new/old-1=+0.0000%
+long-first/client_ttft_s: old 177.340819 [177.025803, 178.099072], new 176.796339 [176.683180, 177.140106], new/old-1=-0.3070%
+
+相同正文、思考、result/speculative汇总的匹配对（仍不等同逐轮设备状态完全相同）：
+short-decode: 04-old -> 03-new, round_ms变化 -0.4031%
+short-decode: 04-old -> 06-new, round_ms变化 -0.5226%
+short-decode: 05-old -> 03-new, round_ms变化 -0.4480%
+short-decode: 05-old -> 06-new, round_ms变化 -0.5674%
+long-first: 04-old -> 03-new, round_ms变化 -0.5598%
+long-first: 04-old -> 06-new, round_ms变化 -0.5501%
+long-first: 05-old -> 03-new, round_ms变化 -1.6034%
+long-first: 05-old -> 06-new, round_ms变化 -1.5938%
+long-followup: 04-old -> 03-new, round_ms变化 -0.5573%
+long-followup: 04-old -> 06-new, round_ms变化 -0.5632%
+long-followup: 05-old -> 03-new, round_ms变化 -1.0584%
+long-followup: 05-old -> 06-new, round_ms变化 -1.0643%
+long-decode: 04-old -> 03-new, round_ms变化 -0.5779%
+long-decode: 04-old -> 06-new, round_ms变化 -0.6354%
+long-decode: 05-old -> 03-new, round_ms变化 -0.9658%
+long-decode: 05-old -> 06-new, round_ms变化 -1.0231%
+时钟限定：05-old长生成采样1920MHz，匹配06-new为1935MHz，该对差值不能全归内核。
+03-new/04-old的长生成匹配对双方全部SM采样1935MHz，round_ms下降约0.58%，是更可靠的本轮归因证据。
+
+质量：独立CPU重评分与原始事实审计
+quality-short/old: 三道答案 3/3，代码 444/447。
+quality-short/new: 三道答案 3/3，代码 444/447。
+  topological-sort: old失败 []；new失败 []；新增 []；改善 []。
+  shortest-subarray: old失败 []；new失败 []；新增 []；改善 []。
+  merge-patch: old失败 [2, 49, 88]；new失败 [2, 49, 88]；新增 []；改善 []。
+quality-context/old: 三道答案 3/3，代码 444/447。
+quality-context/new: 三道答案 3/3，代码 444/447。
+  topological-sort: old失败 []；new失败 []；新增 []；改善 []。
+  shortest-subarray: old失败 []；new失败 []；新增 []；改善 []。
+  merge-patch: old失败 [2, 49, 88]；new失败 [2, 49, 88]；新增 []；改善 []。
+视觉/工具/取消/95K原始事实：{"arithmetic": true, "tool_call": true, "cancel_mid_prefill": true, "server_confirmed_cancel": true, "cancel_retry_1": true, "cancel_retry_2": true, "vision_dashboard": true, "vision_chinese-ui": true, "vision_code-editor-dense": true, "long_cold_prompt": true, "long_later_records": true, "long_earlier_records": true}
+
+诊断结论：
+历史慢样本在相同文本和MTP计数下，多出约13.68秒设备等待；CPU提交和输出轨迹不能解释这次慢窗。
+本轮六轮标记慢窗 0 个；阈值及全部窗口见formal-diagnostics。
+GPU等待的具体触发原因仍未确证。历史显存增长是相关证据，不能据此认定WDDM换页或指认某个进程。
+512MiB/20秒静态显存压力未复现持续慢窗；2560轮固定logits/CTA完成顺序扰动采样测试无不匹配。
+以上负结果仅覆盖本次条件。实时输出首次分叉仍未定位，不能笼统宣称是正常浮点误差。
+Q6私有内核时延约下降16%/17%；生产SASS与探针一致。此口径不能当作整机提速。
+公共Op独立FP64 oracle通过；实际N5120检查8个完整输出行，小形状全行，同时做全输出有限值/guard/输入不变检查。
+
+边界：Finite regression set, not universal capability or tokenwise equivalence. Existing quality failures remain visible. The specific historical GPU-side stall trigger and the first live-output divergence are not identified. No outliers were removed.
+采用检查：{"public_op": true, "production_sass": true, "quality": true, "performance": true, "short_round_faster": true, "long_round_faster": true, "fixed_parameters": true, "all_95k_records_correct": true, "all_fixed_output_lengths": true, "all_phases_complete_and_frozen": true, "source_unchanged": true}
+原始证据：D:\AI\ninfer-fusion-kvmem\benchmarks\decode-stability-20261013
+模型与冻结EXE身份：candidate-frozen.json及各phase.json。

@@ -1,0 +1,89 @@
+2026-10-13 最小非法 token 诊断：错误复现，保留 q5load
+
+结论
+本轮没有更新默认包、参数、模型、量化或 CUDA 算法，没有追加性能测试。
+非法 token 的外部症状在 C0 隔离程序中再次出现。实际值为 -1；5 个有效验证列的目标
+hidden 与 logits 全部为 NaN。故障边界已推进到采样前的目标前向/状态；首个 NaN
+出现在哪层、由哪种状态或内存问题引起仍未定位，因此不做修复有效或能力等价声明。
+本轮捕获不能反向证明旧失败也有同样的内部 NaN 根因。
+
+执行范围和回归
+冻结两个冷启动隔离会话，每个按原顺序执行 transaction-patch、incremental-build。
+共 4 个原始模型请求，各 1 次；0 自动重试、0 追加预热请求、0 profiler、0 性能测试。
+服务自身原有启动预热保留，没有修改默认启动行为。两个服务均已停止。
+保留 chunk384 / MTP4 / RK8V4 / FP16 GDN / 102400 全 GPU KV / 并发1，
+生成默认 temperature1 / top_p0.95 / top_k20 / xhigh / max_tokens94208，原 seed 不变。
+默认发布包仍为 fusion-43c39c6-sm75-q5load。
+
+                          长代码修复                长代码补全
+本轮 q5 主机诊断程序       stop；语法有效；141/141    stop；语法有效；108/108
+本轮 C0 主机诊断程序       stop；语法有效；141/141    非法 token；无完整答案；不评分
+旧 C0 原始结果             stop；语法错误             非法 token；无完整答案
+
+每份完整新答案在对应服务停止后只评分一次；历史答案没有重跑评分。
+旧修复题的 0/141 是 source_load_failed，不代表执行了 141 个逻辑断言后全部失败。
+本轮未覆盖更广泛文本/视觉能力回归，不满足 C0 采纳门禁。
+
+关键捕获事实
+capture: c0-run/diagnostics/mtp-lane0-E27163-228352617927000
+capture_status=complete；licensed_tokens=[-1]；count=1；accepted=0。
+E=27163，S=27164，width=5，current_extent=4，valid_columns=5，graph_enabled=true。
+host 选择 profile=[16383,32760]，target envelope=[1,32765]。
+anchor=198，当前 4 个 drafts=[262,45374,283,716]，均属于公开 token 域。
+默认采样参数一致、无 penalty、无 mask；这是主机入口参数，不是独立的设备参数快照。
+每列 248077 个公开 logits 全 NaN，243 个物理补齐元素也全 NaN。
+每列 5120 个 target_hidden 全 NaN；共 25600 个 hidden 原始 BF16 均为 0x7fff。
+全部 1241600 个物理 logits 原始 BF16 也均为 0x7fff。
+target_argmax=[0,0,0,0,0]：ID 在域内不表示对应分数有效。
+2,483,200 字节 logits 和 51,200 字节 hidden 的布局、大小、统计及哈希独立核对通过。
+
+从第一性原理缩小原因
+1. 实际出错值不是陌生汉字或正数词表补齐 ID，而是 -1。源码的非有限分布保护分支
+   会写入 [-1]/count1/accepted0；本轮观测与这个哨兵路径一致。没有抓取已经失效的
+   sampler workspace，也没有把旧概率缓存当作仍有效的证据。
+2. 所有有效列连目标 hidden 都已 NaN，因此没有证据支持“有限 logits 仅因 top_p
+   参数算坏”的解释，故障也不能仅定位为 lm_head 输出或 tokenizer 映射问题。
+3. 正常源数据流中这些目标张量先于采样产生，后续 MTP 只读它们；本轮持久张量快照
+   不会正常地被后续 proposal 覆写。这不等于排除了越界写、竞争或其他内存破坏。
+4. 图内采样拒绝之后仍会继续执行 MTP 后续节点，可能产生次生污染。没有使用这些
+   后续 proposal/scratch 反推第一故障点，也未捕获到首次变 NaN 的中间层。
+5. 按冻结 profile 和源码路由，失败当轮 [1,32765] 对应 8x2x32q，而 C0 修改的是
+   长档 8x2x32qe。这削弱“当轮直接执行 C0 改动导致 NaN”的解释，但不是 GPU 节点
+   trace，不能排除图绑定错误、内存布局、前题状态或其他间接影响。
+6. 同一 C0 会话的前一道修复题确在 E=32763 进入 [1,102400] 长档，完成到 total
+   48460 后正常结束；因此尤其不能声称这个进程从未使用 C0，或已经证明跨题状态洁净。
+
+长代码语法错误与 C0 的关系
+旧异常汉字/缩进已在原始 SSE 中，不是代码提取或评分器制造。本轮 C0 修复题未复现
+语法错误且通过 141/141，但这不能清除历史失败，亦不能证明其一定与 C0 无关。
+同一 seed 下新旧 q5 推理文本的可见前缀也在 142/1693 字符后分歧，最终代码不同但
+契约均通过。新 q5 使用主机诊断 EXE；虽然 CUDA 完整容器与原 q5 逐字一致，它并非
+原生产 EXE 的逐字重复实验，主机时序、分配和进程状态仍可能不同。
+可见文本和再次编码的 token 数不是原生成 token ID，不能替代真实 frontier。
+本轮两题顺序一致，但没有重放旧 C0 前面的 12 个短请求；错误仍复现，说明那 12 个
+前置请求不是复现外部症状的必要条件。是否相同内部根因仍未知。
+
+实现和证据完整性
+只在新镜像中增加主机失败日志/快照及稀疏 profile 日志，保留原异常；未修改采样规则、
+数值精度、token 拒绝逻辑或 CUDA 代码。只编译一次主机 decode.cpp、隔离链接两次。
+q5/C0 两份新服务各 357 个完整 CUDA 容器与各自原服务逐字相同，覆盖代码和资源。
+成功路径没有新增 GPU 拷贝、同步或内核；失败后读取稳定张量，不重放图。
+运行末两份 manifest 均确认冻结输入、模型 stat、profile 未变且拥有的服务已停止。
+模型身份使用此前验证的 SHA + 相同大小/mtime，本轮没有重新遍历整个模型哈希。
+产品源码与默认包未改；诊断补丁、构建和捕获均保留在隔离目录。
+
+后续优先事项（未执行；本轮到此停止复现）
+P0 保持 q5load 默认和 C0 未采纳状态，不用 token 替换、clamp 或重试掩盖 NaN。
+P1 先审计跨请求 root/GDN/KV 状态重置、graph profile 更新及缓冲区所有权/别名；将
+   本轮真实 E、epoch、slot、table row 与前题长档记录用于检查，不再以文本长度估算。
+P1 下一次若继续诊断，目标是“首次非有限值”，先区分最终 norm 输入/输出，再定位
+   第一坏层以及 attention/GDN/MLP 边界；同时记录真实图绑定和状态代际。只加有界
+   故障检测，不扩成全上下文性能 profiling；保留默认参数和同顺序请求。
+P2 在首个 NaN 根因明确、最小修复通过数值检查及长代码/必要能力回归之前，不重启
+   性能采纳流程，不更新默认包。本轮语法症状未复现，暂不为它追加生成次数。
+
+证据入口
+freeze.json；q5-run/manifest.json；c0-run/manifest.json；code/build-manifest.json。
+capture-analysis.json；comparison/final/comparison.json；comparison/final/interpretation.txt。
+syntax-causality-review.txt；sampler-review.txt；old-failure-position-review.txt。
+code/failure-interpretation.txt；code/reproduced-failure-review.txt。

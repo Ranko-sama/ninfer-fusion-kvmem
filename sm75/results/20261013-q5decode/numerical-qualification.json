@@ -1,0 +1,31 @@
+{
+  "candidate_sha256": "d55bd249bab9703090cc0d1f425f74489d0e5d93519b6cce0e86026880b11fc3",
+  "source": {
+    "src-tree/fusion-engine-src/src/ops/linear/gguf/ggml_bridge_vec.cuh": "3b83468864963fc1e5af37dc6cc9e7633369f771a64ad120e6c22fb0d4df2ba5",
+    "src-tree/fusion-engine-src/tests/ops/linear/test_gguf.cpp": "aab7bc2ccd859e2f2fd769e52bb777cf16331b2cfcde8b4783a4722278d066fd"
+  },
+  "checks": {
+    "independent_public_oracle": true,
+    "route_boundary_graph": true,
+    "production_sass": true,
+    "independent_source_review": true
+  },
+  "evidence_sha256": {
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\public-candidate-test.log": "8a4393e64426eed2ca8d9b09c7a3f6aa37a0bbf5dde9f3ed40cd92c972ee6118",
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\candidate-build.log": "6cbb38af2545048d0030e596ae4017f2ed3f1e9cb8c3365c3e4d74b8131c7428",
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\q5-only.patch": "17a7029d8bb4df94da1a7732e102616c80012d25a3e477716a460221d511c7b9",
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\q5-independent-review.txt": "618f38d8adce092754e20e1780ae643149cccef88ccfddec510beb95860cc971",
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\q5-independent-review.json": "b671004ba5814b75cad77af4b7596066a1015c661b6079edbb0d6982bba54f91",
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\q5-source-review.json": "9f9f421d97b2ed2f2a69ba1172dbcd5af8b6a4f52ef58e9cb70161ccbc088250",
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\q5-production-sass\\report.json": "a9a6545bac3645c452c5c5490988f034f49d11356dfa68636e0e5f0843953284",
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\q5-unaffected-sass\\report.json": "880070d6ba7e1823b2213807be224482308d6c6ff5479e837e2a11176e82a285",
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\q5-6144-paired.log": "36ddce522f29fd664d53c29ff71680921b3d1bf2a09ceb5631ffea9e53342b51",
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\q5-17408-paired.log": "c93aaca744c2dbfc0d34941250dc8383f5d147479083bbc1e8682921b3f34c46",
+    "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\q5-packed-probe.exe": "2f3cf4bfec3c67667424a36ee4243df39362250ba9004a4d8240c029e1b57014",
+    "D:\\AI\\ninfer-fusion-kvmem\\upgrade-staging\\fusion-sm75\\src-tree\\fusion-engine-src\\src\\ops\\linear\\gguf\\ggml_bridge_vec.cuh": "3b83468864963fc1e5af37dc6cc9e7633369f771a64ad120e6c22fb0d4df2ba5",
+    "D:\\AI\\ninfer-fusion-kvmem\\upgrade-staging\\fusion-sm75\\src-tree\\fusion-engine-src\\tests\\ops\\linear\\test_gguf.cpp": "aab7bc2ccd859e2f2fd769e52bb777cf16331b2cfcde8b4783a4722278d066fd"
+  },
+  "scope": "15 Q5 cases/19 replay phases; public BF16-input independent FP64 oracle, small N all rows and real N5120 eight full rows, all outputs finite/guarded. Original Q3/Q6 and all 15 formats pass. Private probe separately verifies all FP32/BF16 outputs exactly. Source and SASS independently reviewed.",
+  "test_exit_code_observed_by_root": 0,
+  "quality_and_performance": "Separate pending gates; no capability or E2E claim here."
+}

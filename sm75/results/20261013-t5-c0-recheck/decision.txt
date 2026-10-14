@@ -1,0 +1,98 @@
+Coder T5 C0：一次有界复核的最终决定
+日期：2026-10-13
+
+决定：不采纳 C0；默认继续使用 fusion-43c39c6-sm75-q5load。
+修订并冻结后的唯一性能对照通过，但模型质量门槛未通过。局部速度收益不能抵消
+长代码答案失败及服务错误。本轮停止 GPU 工作，不补跑、不改变请求或判题门槛。
+本轮自有产品头文件和两个测试文件已按修改前的完整字节恢复，保留原有 dirty 修改；
+候选补丁、源码副本、隔离二进制和全部成功/失败证据均保留。未创建候选发布包。
+
+一、已证实的局部优化与性能
+目标为 SM75、D256/Hq24/Hkv4、masked T5、RK8V4、PvF16、QkSplit2、EarlyFetch，
+默认 profile 8x2x32qe。仅对这一精确模板把编译 launch-bounds 驻留提示 2 改为 1。
+名义模板 x2、profile、grid(4,34,1)、256 线程和算法正文不变。
+shared 实际分配 44032 B 已使一个 SM 只能驻留一个 CTA；放宽编译寄存器预算后，
+寄存器 128→218，联合资源限制仍为一个 CTA，stack 88→0、spill load/store 84/84→0。
+这不是 occupancy 提升，也不是模型量化或采样参数变化。
+28 个受影响 CUDA TU 的 11200 个函数实例中，仅目标实例机器码/资源变化；其余
+11199 个实例不变。生产目标 5272 条指令与受测 C0 probe 逐 PC/文本/编码一致。
+
+本轮仅一次性能进程：固定 ABBA×8×64=2048 次预热；AA/AB/BA/BA/AB/AA 共12块，
+每块50次，共600次正式 graph 路径。合计2648 graph路径、5296 kernel执行。
+各预热/测量块前恢复同一份输入与缓存；恢复在计时外。CPU参考和建图在预热前，
+预热/测量中不格式化或刷出记录；所有数值、输入和缓存检查在计时后执行。
+没有锁频、改变默认参数、剔除正式块、追加性能筛选或并发 profiler。
+基线均值 0.721071205 ms；候选均值 0.618646564 ms。
+四对耗时降幅中位 14.20266244%，四对均有利；范围14.15297389%..14.25967583%。
+AA控制噪声0.21622809%（门槛1%），首尾漂移0.05120934%（门槛2%），全部预定门槛通过。
+两个独立事后审查分别23/23、19/19通过。
+范围仅为固定95K/T5的 append+partial+ungated reducer 局部图，不含独立sigmoid，
+不能解释为模型/API吞吐提升14.2%。正式阶段NVML只有6个样本；12块中9块没有样本，
+不能声称逐块时钟恒定。旧的噪声/漂移失败筛选独立保留，未混入本轮统计。
+
+二、数值和公共集成证据
+通过三内核机器码身份链复用旧11状态数值资格，本轮没有重跑整个私有数值矩阵。
+本轮计时后完整有定义FP32 partial、BF16输出、缓存逐位一致，输入/guards通过。
+公共资格首次因测试未安装设备profile而走fallback，未命中C0，按失败保留。
+修正仅在focused测试中按Engine正常路径加载并安装原q5 profile，没有force route。
+修正后公共测试实际捕获218寄存器/零local的目标节点；valid5→跨页valid3→inactive0
+同一图换数据，缓存、输入、全输出及状态检查通过。两组FP64 L2为0.00172392266和
+0.00163505270，均低于原0.00325阈值；真实大形状FP64每状态抽查8/120行的全部维度，
+不宣称120行全量FP64覆盖。公共功能尝试合计2次；性能尝试仍仅1次。
+测试重新链接时fatbinary物理顺序变化，首个整节SHA断言失败也保留；完整369容器的
+长度+SHA多重集合一致以及目标编码同一性另有独立证据，不以忽略字节变化替代验证。
+
+三、模型质量门槛未通过
+候选服务SHA256：daef98f69ecd458289d7d37ae721394fdbfa7562284497f56a3b79526cf2cebf。
+22项文本请求计划只启动14项：13项正常结束，第14项服务失败，后8项未启动。
+候选视觉3项未启动；候选Jinja题未启动。没有把未运行项目记作通过。
+新增约39K真实Jinja源码题仅q5基线完成34/34；它不构成候选能力证据。
+
+失败前13个完整答案在独立目录用冻结grader首次离线评分；不重新调用模型或修答案：
+- 短题：客观答案3/3，代码444/447；原merge-patch失败索引[2,49,88]保留，无新增失败。
+- 约9K前缀：客观答案3/3，代码444/447；相同三个原失败，无新增失败。
+- transaction-patch：正常finish=stop，但提取的原始生成代码出现IndentationError，
+  保存错误行含“洛 source = None”。评分0/141，原q5为141/141。141项均为
+  source_load_failed，不能描述为141个已运行逻辑断言失败；也不是预算截断。
+- incremental-build：第14请求在生成中触发
+  “target returned a token outside the public token domain”。SSE、服务请求日志与
+  stderr一致；content为空、只有部分reasoning，无finish/DONE/usage。没有可评分的
+  完整补全，不能写成0/108代码合同分数。旧q5完整结果108/108仅作为原基线。
+
+短/9K为复用历史的temperature0/medium/max6144合同；并非默认xhigh能力证明。
+两题长代码保持原temperature1/top_p0.95/top_k20/xhigh/max94208及固定seed。
+服务默认chunk384/MTP4/RK8V4/FP16 GDN/context与KV102400全GPU/hostKV0/C1/
+slots0/ring off/ALIGN0/graph128MiB均未改变。94208是默认输出上限，与输入和
+reasoning共享102400总上下文，并非保证任意输入都能再输出94208。
+输入/模型stat/profile/DLL/候选身份在运行前后保持一致；拥有的测试进程已停止。
+完整答案语法失败与下一题服务失败分别记录，任何部分通过不能补偿失败或未覆盖项。
+
+四、因果边界及收尾
+异常文本来自decode.cpp的public token合法域检查。采样器非finite sentinel=-1是
+源码中一条可能到达该检查的路径，但本次日志没有非法值、失败轮frontier或logits，
+不能确认走了该路径；也不能因历史同文案就归为同一旧bug，或因局部数值通过排除C0。
+当前证据足以拒绝默认采纳，不足以判定两项模型失败的底层原因。
+不牺牲能力的门槛实际生效：没有降低reasoning/精度、修复生成答案后重新打分、放宽
+token域检查、改seed/提示词或重试直到通过。也不把本次失败称作已修复的历史波动。
+
+默认q5 EXE SHA256：d55bd249bab9703090cc0d1f425f74489d0e5d93519b6cce0e86026880b11fc3。
+default-retained-verification.json核实7个默认文件SHA、模型stat和候选发布目录不存在。
+source-rollback/manifest.json记录3文件的before/candidate/restored SHA及其他dirty源
+不变；candidate-source保存完整候选源码。此前run的冻结身份代表运行时状态，之后
+显式源码回退不改写这些历史身份记录。采纳脚本未执行。
+
+后续优先事项（本轮未执行，不追加性能测试）：
+1. 在现有失败检查点补最少的错误诊断：非法token、domain、row/count/frontier与
+   graph/profile身份。确认是否为-1后，再沿接受概率/logits追查首个非finite或覆写。
+2. 同时保留本次完整语法失败答案和精确请求/seed，区分生成轨迹、运行状态与内核
+   因果；仅凭相同错误文案、一次重试成功或局部oracle通过都不能解除阻断。
+3. C0保持未发布候选。先解决/界定模型失败，再重新定义最小能力资格范围；不开展
+   新性能筛选，不将旧局部速度收益升级为端到端收益承诺。
+
+主要证据目录（均相对本文件）：
+measurement/run-01/；measurement/post-run-review.json；validation/post-run-review.json
+code/integration/implementation-report.txt；code/integration/product-only.patch
+validation/public-op-run/；validation/public-corrected/public-op-run/
+quality/text-run/；quality/partial-results/；quality/text-failed-post-audit.json
+validation/text-failure-independent-audit.json；validation/partial-quality-independent-audit.json
+code/integration/failure-code-review.txt；default-retained-verification.json；source-rollback/

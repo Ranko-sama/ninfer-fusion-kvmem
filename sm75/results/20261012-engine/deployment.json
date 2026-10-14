@@ -1,0 +1,86 @@
+{
+  "release": "fusion-43c39c6-sm75-prefetch",
+  "previous_release": "fusion-43c39c6-sm75-perf",
+  "executable_sha256": "f99b9d254f5adb1ed89e5acb15611d2dca61fa0df71ce6717790d1bbb200cb53",
+  "device_profile_sha256": "d0d9360515479cf5345b259145cc4d2db9bf7b9f478997566a7a1cb5e02042e5",
+  "model_sha256": "815241ba4d8f62055720d8632617b24814da3bf881948867b8eb65dbccd4bdb3",
+  "parent_commit": "b00c3f6d4d8fa228ea3ce1eceef5315a4fc31a5c",
+  "source_patch_sha256": "ac559ab6cfdaeef68e1d22f2711edc9d2cc58bfec83d6c6d6f05df57aba709d2",
+  "validation_directory": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\engine-optimization-20261012",
+  "quality_gate": true,
+  "six_round_performance_audit": true,
+  "parameters_changed": false,
+  "scope": "SM75 prompt raw KV prefetch; chunk384/MTP4/RK8V4/FP16GDN/102400/concurrency1 unchanged.",
+  "limitations": "No new failures in this regression set; not a universal ability or bitwise equivalence guarantee.",
+  "files": {
+    "audit-report.txt": "97366a93ba8b1411a887b7463b3f4745ba766985210a1c5f8f153ca970e2e909",
+    "audit-results.json": "877652c5960ff60b5c07ca6f13eae4d0664ae635814fb51d29137dca37ecec8e",
+    "avcodec-62.dll": "d9a8d4f932abfa6e8b6a78b98de04c26c2a4ee5613968dd729f585ba5eeeaa8b",
+    "avformat-62.dll": "fc5da7ee5113c18977c1b53eec20cf5179760fcaedbec2f0601234d64b350263",
+    "avutil-60.dll": "75edd5af53850bada55f5d34ced3013d9cfbf84fe9648a7ab716acc9dfdbddf6",
+    "cublas64_12.dll": "0a60a7ecbf906f7f3842826fecaf412f1587ff6269729339245a1ec224364161",
+    "cublasLt64_12.dll": "a21ddfc1c9cd090ab07d2c6aad235aa4f15fe60fe896d5db28adf7a279c09ef3",
+    "cudart64_12.dll": "9d9b868955149875ac4ef43442aaaa8913d4a7b3e4d6dd60ee871626aa045768",
+    "decision.txt": "ec27437ce8babcfcd62bce8f95aa9af5bcc6bab234d364b66776631d6ceeda8d",
+    "device-profiles.json": "d0d9360515479cf5345b259145cc4d2db9bf7b9f478997566a7a1cb5e02042e5",
+    "engine-change.patch": "ac559ab6cfdaeef68e1d22f2711edc9d2cc58bfec83d6c6d6f05df57aba709d2",
+    "libcurl.dll": "7c121a4539a8738aa6885879d71bdad0c3920eaf6dfe09f5495c1a7cabe4c902",
+    "LICENSE": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6",
+    "ninfer-serve.exe": "f99b9d254f5adb1ed89e5acb15611d2dca61fa0df71ce6717790d1bbb200cb53",
+    "NOTICE.txt": "9bebffda5a810f51e747ba05cb757da4086cbd21ecb3f19ca0ce2e43b5d1ac9e",
+    "performance-details.json": "cfeb159f1caee9d606f4fefa0cbfef50a8e597fd73041465f9c339e4c6e680ff",
+    "performance-details.txt": "64339f2f8dcf4313aa9f5207008e7b721b1d869d438d0d32b919ff37a0921f51",
+    "source-and-op-validation.json": "3a2b60949ff26befd68c4b826d187c1656620e2eb0d5de96c0b35ae34ed18410",
+    "swresample-6.dll": "47086f925d4dbd2bfb04342586272ba86fa38ea3941279655c6011fe0d492e3e",
+    "swscale-9.dll": "08a295a305788c3ead5a68dc63066e94e8555d1b215376aacd9106a2d8f7728c",
+    "z.dll": "b406ffb777c19af2275881638823ac93480c4f8031e3f6de39fa544b01799738"
+  },
+  "entrypoint_backups": [
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\start-fusion-sm75-coder390-100k-lan.bat",
+      "existed": true,
+      "backup": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\engine-optimization-20261012\\launchers-before-code-optimization\\00-start-fusion-sm75-coder390-100k-lan.bat",
+      "sha256": "8f9f2e7c49d839a6971ad5458a6a3c1e25adde769d8e19d83fe6392d5fb601da"
+    },
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\start-fusion-sm75-coder390-100k-vision-overlay-lan.bat",
+      "existed": true,
+      "backup": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\engine-optimization-20261012\\launchers-before-code-optimization\\01-start-fusion-sm75-coder390-100k-vision-overlay-lan.bat",
+      "sha256": "f9281ea48a82e38052bf54cb604a16eb457894c94f1479c25403c55d86c1d341"
+    },
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\releases\\fusion-43c39c6-sm75-prefetch\\manifest.json",
+      "existed": false,
+      "backup": null,
+      "sha256": null
+    },
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\engine-optimization-20261012\\deployment.json",
+      "existed": false,
+      "backup": null,
+      "sha256": null
+    },
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\upgrade-staging\\fusion-sm75\\sm75\\current-release.json",
+      "existed": false,
+      "backup": null,
+      "sha256": null
+    }
+  ],
+  "launchers": [
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\start-fusion-sm75-coder390-100k-lan.bat",
+      "backup": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\engine-optimization-20261012\\launchers-before-code-optimization\\00-start-fusion-sm75-coder390-100k-lan.bat",
+      "sha256_before": "8f9f2e7c49d839a6971ad5458a6a3c1e25adde769d8e19d83fe6392d5fb601da",
+      "sha256_after": "ea2e717e4da4bbb1b87261a42bf52788764dac47a12c6fd94df348dc2d4e63a5",
+      "only_package_path_changed": true
+    },
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\start-fusion-sm75-coder390-100k-vision-overlay-lan.bat",
+      "backup": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\engine-optimization-20261012\\launchers-before-code-optimization\\01-start-fusion-sm75-coder390-100k-vision-overlay-lan.bat",
+      "sha256_before": "f9281ea48a82e38052bf54cb604a16eb457894c94f1479c25403c55d86c1d341",
+      "sha256_after": "cc73d4e8877073ffa81a5fa482a5a3cfdf6138028b3155756dc254189c3737c0",
+      "only_package_path_changed": true
+    }
+  ]
+}

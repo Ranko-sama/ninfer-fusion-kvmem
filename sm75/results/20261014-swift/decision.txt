@@ -1,0 +1,78 @@
+Swift 模型有界重复性检查（2026-10-14，已结束）
+
+结论
+使用当前未修改的 q5load 发布包，换成另一份 Swift 模型后，仍复现同参数、同种子
+推理文本分叉。99-token 短输入和三类95K长请求都出现分叉，warmup输出一致。
+本轮10/10个请求正常结束（stop或length）；未见非法token或引擎错误。
+q5原发布EXE没有内部张量捕获，因此NaN状态仍为“未观测”，不是“已排除”。
+不能用这次结果归因于Coder390特有权重/量化包；也不能据此断定所有模型都有问题，
+或证明Swift与之前Coder390分叉、RC3 NaN具有相同根因。
+
+冻结身份
+引擎：releases/fusion-43c39c6-sm75-q5load/ninfer-serve.exe
+EXE SHA256：d55bd249bab9703090cc0d1f425f74489d0e5d93519b6cce0e86026880b11fc3
+模型：C:\QWEN\Huihui-Qwen3.8-27B-abliterated-Swift-1.5-GSQ-RCO-IQ3_S-mtp.ninfer
+大小：12,117,303,296字节；本轮启动前完整计算SHA256：
+f9ea5c473b0a3a735a17791f4316b4786165e7f12c4fbc0aef40cc087057c79e
+两次启动及结束后核对模型大小与mtime未变；结束后没有再全量重读12.1GB模型。
+当前q5 profile SHA256：d0d9360515479cf5345b259145cc4d2db9bf7b9f478997566a7a1cb5e02042e5
+两次启动均确认60条路由载入；实际cublas/cublasLt/cudart CUDA12 DLL来自q5发布目录。
+
+实验设置
+只在独立测试命令中选择Swift模型；默认启动器仍使用原Coder390 Q8MTP。
+服务参数和q5 profile保持冻结：RK8V4、FP16 GDN、MTP4、chunk384、102400上下文/KV、
+并发1、host KV0、device state0、shared prefix0、ngram0、CUDA Graph allowance128MiB，
+temperature1、top_p.95、top_k20、xhigh、默认输出94208。两次使用独立进程和LOCALAPPDATA。
+请求按原顺序逐字节复制自original-sm75-20261014/requests，来源是历史非法token序列。
+请求显式输出上限64/2048/4096/4096/2048原样保留，没有修改服务默认输出上限。
+实际engine、sampling_defaults及五组实际request日志两轮均相等。
+没有编译、插桩、能力评分或性能专项测试；不能把此次耗时用于跨模型性能结论。
+
+直接观察（字符位置从1开始；比较解析后的推理文本与正文，不比较SSE包装）
+请求             seed   prompt/cache       推理首次差异字符    推理字符长度       正文
+warmup           42     28/0               无                  0/0                42，相同
+short-decode     175    99/0               4897                9263/9136          均为空
+long-first       173    95000/0            80                  1388/1243          48字符相同
+long-followup    174    95078/94995         137                 473/773            51字符相同
+long-decode      175    95168/95073         390                 8913/8823          均为空
+
+short-decode与long-decode两次均达到原请求2048-token输出上限，全部用于推理；
+它们没有最终正文不作为能力成绩。long-first两次completion tokens为425/389，
+long-followup为190/269。原始SSE、usage和各通道SHA均保存。
+
+归因边界
+1. Coder390特有权重/量化包不是这种可见分叉的必要条件：Swift自身重复运行也分叉。
+2. Swift首次分叉位于99-token输入的第二个请求；当时两轮都尚未运行95K请求，
+   此前仅有相同输出的warmup。因此不需要先经历95K长输入即可观察分叉。
+   但它不是冷启动首个请求，本轮没有排除warmup及其他跨请求内部状态。
+3. Swift与Coder390的文本架构配置相同，但权重、量化格式、MTP及适用算子路径不同。
+   tokenizer、聊天模板及generation配置文件的字节也不同；未据此判定渲染token必然不同。
+   本轮比较的是Swift自身重复输出，没有要求两个模型输出相同。
+4. 本轮没有同时重跑Coder390；先前第三方原包实验使用另一EXE和CUDA13 DLL，
+   不能把那次与本次直接当作仅改变模型的同时段A/B。当前q5配置与发布身份单独冻结。
+5. 未捕获张量及完整token-ID流，不能证明此分叉属于已捕获的有限张量分叉同一机制。
+   2次运行未见非法token只是有界阴性结果，不能关闭历史NaN/非法token问题。
+6. 不把分叉等同于普遍降智，也不因最终正文相同宣称内部数值正确或能力回归通过。
+
+投入与停止
+预定最多2次冷启动、10个请求、模型实验20分钟；启动120秒、单请求420秒截止。
+启动、运行、传输、超时或配置错误即停止，不重试、不扩展轮次。
+实际2次冷启动、10/10请求完成，模型实验569.157秒（约9分29秒）。
+两个自有进程均退出，3683/3684端口已释放，plan.json已关闭并禁止追加运行。
+默认q5包34/34文件、请求、工具、profile、配置与所有默认启动器哈希未变。
+默认Coder390模型大小/mtime未变；没有切换默认模型、部署、提交或推送。
+
+维护决定
+本轮结束，不追加版本或模型遍历。仅归因于Coder390这一份模型已经无法解释全部
+观测；共同执行代码、适配、状态及环境等因素仍未区分。NaN继续单独记录。
+没有根因修复，没有解除发布阻断；后续工作必须另有明确判定目标和投入上限。
+
+证据（本目录内）
+plan.json：冻结模型/引擎/请求身份、命令、限制、计数与关闭状态。
+summary.json：文本差异位置、原文片段、完整请求计数、错误列表和冻结核验。
+closeout.json：usage、同配置检查、实际DLL路径、服务退出与端口释放。
+artifact-summary.json / frontend-comparison.json：模型目录信息和前端资源比较，非数值资格。
+requests/*.request.json：原始请求；swift-{1,2}/：manifest、环境、runtime-check、
+loaded-modules、requests.jsonl、stdout/stderr、原始SSE和解析result.json。
+工具：upgrade-staging/fusion-sm75/tools/sm75/replay-swift.py，复用哈希冻结的replay-original.py；
+未修改原包实验工具或已关闭的原包实验记录。

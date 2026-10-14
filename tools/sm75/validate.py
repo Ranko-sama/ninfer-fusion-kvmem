@@ -6,6 +6,7 @@ import json
 import os
 import re
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -33,8 +34,14 @@ def main():
     parser.add_argument('--long', action='store_true')
     parser.add_argument('--ring', action='store_true')
     parser.add_argument('--no-graph', action='store_true')
-    parser.add_argument('--device-profile-path', type=Path)
+    parser.add_argument('--device-profile-path', type=Path, default=ROOT/'sm75/device-profiles.json')
+    parser.add_argument('--prefill-chunk', type=int, default=384)
+    parser.add_argument('--draft-tokens', type=int, default=4)
     args = parser.parse_args()
+    if args.prefill_chunk <= 0 or args.prefill_chunk % 128:
+        parser.error('--prefill-chunk must be a positive multiple of 128')
+    if not 1 <= args.draft_tokens <= 15:
+        parser.error('--draft-tokens must be in [1,15] for MTP')
     if args.vision_recheck_from and (not args.vision or args.long or args.ring):
         parser.error('--vision-recheck-from requires --vision without --long or --ring')
     folder = STAGE / 'validation' / args.name
@@ -45,10 +52,13 @@ def main():
     env = {k.upper():v for k,v in os.environ.items() if not k.upper().startswith('NINFER_')}
     if args.cuda_bin:
         env['PATH'] = str(args.cuda_bin.resolve(strict=True)) + os.pathsep + env['PATH']
-    env['LOCALAPPDATA'] = str(STAGE / 'runtime-cache')
+    env['LOCALAPPDATA'] = str(folder / 'runtime-cache')
     env['NINFER_PREFILL_ALIGN'] = '0'
-    if args.device_profile_path:
-        env['NINFER_DEVICE_PROFILES'] = str(args.device_profile_path.resolve(strict=True))
+    profile_source = args.device_profile_path.resolve(strict=True)
+    active_profile = folder/'device-profiles.json'
+    profile_source_sha256 = harness.sha(profile_source)
+    shutil.copy2(profile_source, active_profile)
+    env['NINFER_DEVICE_PROFILES'] = str(active_profile)
     if args.ring:
         env.update(NINFER_KV_WINDOW='16384', NINFER_KV_RETRIEVE='8192',
                    NINFER_HOST_PAGEABLE='1', NINFER_KV_REUSE_HOSTBACKED='1',
@@ -57,8 +67,8 @@ def main():
                '--host','127.0.0.1','--port','3683','--stats-port','3684',
                '--model-id','qwen3.8-27b','--max-context','102400',
                '--kv-capacity','17920' if args.ring else '102400','--kv-dtype','rk8v4',
-               '--host-kv-mib','8192' if args.ring else '0','--prefill-chunk','384',
-               '--device-state-slots','0','--gdn-state-fp16','--spec','mtp','--draft-tokens','4',
+               '--host-kv-mib','8192' if args.ring else '0','--prefill-chunk',str(args.prefill_chunk),
+               '--device-state-slots','0','--gdn-state-fp16','--spec','mtp','--draft-tokens',str(args.draft_tokens),
                '--ngram-draft-tokens','0','--default-max-tokens','94208',
                '--default-reasoning-effort','xhigh','--max-concurrency','1','--max-shared-prefixes','0',
                '--temperature','1','--top-p','.95','--top-k','20','--device-profile','auto',
@@ -71,9 +81,13 @@ def main():
     write(folder/'environment.json', {k:v for k,v in env.items() if k.startswith('NINFER_')})
     with Path(command[0]).open('rb') as executable:
         executable_sha256 = hashlib.file_digest(executable, 'sha256').hexdigest()
-    results = {'checks':{}, 'complete':False, 'executable_sha256':executable_sha256}
-    if args.device_profile_path:
-        results['device_profile_sha256'] = hashlib.sha256(args.device_profile_path.read_bytes()).hexdigest()
+    results = {'checks':{}, 'complete':False, 'executable_sha256':executable_sha256,
+               'parameters':{'prefill_chunk':args.prefill_chunk,'draft_tokens':args.draft_tokens},
+               'device_profile_source':str(profile_source),
+               'device_profile_sha256':harness.sha(active_profile),
+               'device_profile_source_sha256':profile_source_sha256}
+    if results['device_profile_sha256'] != profile_source_sha256:
+        raise RuntimeError('Device profile changed while copying the test snapshot')
     if args.vision_recheck_from:
         prior_folder = STAGE / 'validation' / args.vision_recheck_from
         prior = json.loads((prior_folder/'summary.json').read_text(encoding='utf-8'))
@@ -82,12 +96,18 @@ def main():
             value = value.copy()
             value[value.index('--request-log-jsonl')+1] = '<request-log>'
             return value
+        def comparable_environment(value):
+            value = value.copy()
+            if 'NINFER_DEVICE_PROFILES' in value:
+                value['NINFER_DEVICE_PROFILES'] = '<device-profile>'
+            return value
         nonvision = {k:v for k,v in prior['checks'].items() if not k.startswith('vision_')}
         if (not prior.get('complete') or not nonvision or not all(nonvision.values())
                 or prior.get('executable_sha256') != executable_sha256
+                or prior.get('device_profile_sha256') != results['device_profile_sha256']
                 or comparable_command(prior_command) != comparable_command(command)
-                or json.loads((prior_folder/'environment.json').read_text(encoding='utf-8'))
-                    != {k:v for k,v in env.items() if k.startswith('NINFER_')}):
+                or comparable_environment(json.loads((prior_folder/'environment.json').read_text(encoding='utf-8')))
+                    != comparable_environment({k:v for k,v in env.items() if k.startswith('NINFER_')})):
             raise ValueError('Cannot reuse validation from a different or incomplete configuration')
         results['checks'].update(nonvision)
         results['inherited_validation'] = args.vision_recheck_from
@@ -111,6 +131,11 @@ def main():
     monitor_thread=threading.Thread(target=monitor,daemon=True)
     monitor_thread.start()
     try:
+        results['checks']['executable_matches_before'] = harness.sha(Path(command[0])) == executable_sha256
+        results['checks']['device_profile_matches_before'] = (
+            harness.sha(active_profile) == profile_source_sha256 == harness.sha(profile_source))
+        if not all(results['checks'].values()):
+            raise RuntimeError('Validation inputs changed before launch')
         with (folder/'stdout.log').open('w') as stdout, (folder/'stderr.log').open('w') as stderr:
             process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=stdout, stderr=stderr,
                                        creationflags=subprocess.CREATE_NO_WINDOW)
@@ -192,6 +217,7 @@ def main():
             messages=[{'role':'user','content':fixture['prompt']}]
             r=harness.generate(folder,'long-first',messages,4096,seed=173)
             results['long_first']=r
+            results['checks']['long_cold_prompt']=harness.cached_tokens(r)==0
             results['checks']['long_later_records']=all(f'{k}={v}' in r['content'].splitlines() for k,v in fixture['records'][3:])
             messages += [{'role':'assistant','content':r['content']}, {'role':'user','content':'Now extract the verified hotfix IDs for aurora, birch and cedar from the original OFFICIAL_RELEASE_MANIFEST records. Output only package=hotfix, one per line.'}]
             followup=harness.generate(folder,'long-followup',messages,4096,seed=174)
@@ -218,6 +244,15 @@ def main():
         results['process_exit']=None if process is None else process.poll()
         stop_monitor.set()
         monitor_thread.join(timeout=6)
+        results['executable_sha256_after']=harness.sha(Path(command[0]))
+        results['device_profile_sha256_after']=harness.sha(active_profile)
+        results['device_profile_source_sha256_after']=harness.sha(profile_source)
+        results['checks']['executable_unchanged']=(results['executable_sha256_after']==executable_sha256)
+        results['checks']['device_profile_unchanged']=(results['device_profile_sha256_after']==profile_source_sha256)
+        results['checks']['device_profile_source_unchanged']=(results['device_profile_source_sha256_after']==profile_source_sha256)
+        if not all(results['checks'][key] for key in (
+                'executable_unchanged','device_profile_unchanged','device_profile_source_unchanged')):
+            results['complete']=False
         write(folder/'gpu-memory.json',memory_samples)
         results['sampled_peak_gpu_mib']=max([s['used_mib'] for s in memory_samples]+[results.get('inherited_sampled_peak_gpu_mib') or 0])
         write(folder/'summary.json',results)

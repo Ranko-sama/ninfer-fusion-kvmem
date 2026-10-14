@@ -1,0 +1,96 @@
+{
+  "release": "fusion-43c39c6-sm75-q5load",
+  "previous_release": "fusion-43c39c6-sm75-q6load",
+  "executable_sha256": "d55bd249bab9703090cc0d1f425f74489d0e5d93519b6cce0e86026880b11fc3",
+  "device_profile_sha256": "d0d9360515479cf5345b259145cc4d2db9bf7b9f478997566a7a1cb5e02042e5",
+  "model_sha256": "815241ba4d8f62055720d8632617b24814da3bf881948867b8eb65dbccd4bdb3",
+  "source_patch_sha256": "17a7029d8bb4df94da1a7732e102616c80012d25a3e477716a460221d511c7b9",
+  "parameters_changed": false,
+  "runtime_dll_storage": "hardlinks to immutable q6load DLLs",
+  "inherited_optimizations": [
+    "Q3 load",
+    "Q6 aligned load"
+  ],
+  "performance_comparison": {
+    "status": "complete_with_baseline_failure",
+    "attempts": 5,
+    "failed_attempts": 1,
+    "original_abba_complete": false
+  },
+  "baseline_failure_assessment": "原ABBA的04-old确认为q6load基线，在long-decode触发target returned a token outside the public token domain。输入哈希前后不变，原phase/error及此前成功请求完整保留。只补一次相同q6load冷启动与原warmup/四请求序列，补测全部完成且输入未变；总计5次尝试、1次失败，不能记为四轮ABBA全通过。此错误未在唯一补测重现，根因未确定；候选两次成功与补测成功均不能证明错误修复或候选可靠性更高。采用依据是独立的Q5数值/机器码资格、局部性能收益和质量无新增失败，不是这次错误。按用户限制停止扩展调查，历史未复现波动继续跳过。",
+  "validation_directory": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013",
+  "adoption_gate": true,
+  "quality_gate": true,
+  "scope": "仅启用 SM75/cc750、Q5_K、T5、非融合、N5120、K6144或17408、dense row stride且base16对齐的packed-header读取；保留原浮点运算、归约顺序、Q3/Q6路径及所有回退。默认chunk384/MTP4/RK8V4/FP16 GDN/102400全GPU KV/并发1、采样、模型、量化、profile和DLL不变。q5load是实现包名，不是模型重新量化。",
+  "performance_interpretation": "采用范围是经过数值资格验证的小幅解码热点优化。两个真实Q5尺寸的三个交替计时对均同向，私有内核中位时延分别下降5.8655%和3.1137%；生产SASS确认元数据窄加载合并，未改变DP4A/浮点运算计数或增加spill，Q3/Q6受测机器码保持一致。按真实调用数估算的条件收益约0.201ms/轮，不能当作整机承诺。保留全部有效观测后，短生成每轮54.814368→54.790579ms（-0.043399%），长生成68.110873→67.965823ms（-0.212962%）；唯一文本和speculative/result汇总均匹配的跨版本对05-old与02/03-new，短轮分别下降0.309469%和0.314092%，支持有限局部收益，不能证明逐轮轨迹一致或统计显著性。API短生成48.539431→48.693648tok/s（+0.317715%），长生成33.929087→36.302109tok/s（+6.994065%），但长请求每轮产出同时增加6.766376%，没有匹配文本对，因此不将约7%吞吐差异归因于本优化。负向观察全部保留：短请求TTFT中位0.281977→0.310169s（+28.192ms/+9.997968%）；95K首问API 62.292342→57.098518tok/s（-8.337821%），追问61.891095→60.442285tok/s（-2.340903%），对应每轮产出下降8.467138%/2.506251%，但每轮时延分别下降0.127093%/0.166368%。这些轨迹不匹配，不能认定API变化由Q5加载引起，也不宣称所有指标改善。接受所测首次响应代价与不确定性，以保留确定的算术等价热点改进和有限轮时收益；旧q6load保留回退，不再增加计时次数。独立短/9K答案和447代码逐项回归无新增失败，视觉、工具、取消恢复、95K事实通过。",
+  "limitations": [
+    "性能为有限且不平衡样本：短生成及95K首问/追问old n=3/new n=2，长生成old n=2/new n=2；全部有效样本和一次失败保留，不作统计显著性或普遍加速结论。",
+    "短请求首次响应中位增加28.192ms；95K首问/追问API吞吐分别下降8.337821%/2.340903%。这些回退与正向结果一同披露。轮时和吞吐不同，变化的输出/接受轨迹限制归因。",
+    "01-old短请求采样SM频率中位1950MHz，其余多为1935MHz；每2秒采样不是锁频证明。长请求无跨版本文本匹配对。",
+    "私有核全FP32/BF16逐元素一致；公共Op真实N5120的独立FP64 oracle覆盖八个完整输出行，另有全输出finite/canary及小矩阵全行检查，不冒称真实大矩阵全元素FP64覆盖。",
+    "短/9K双方均3/3答案、444/447代码用例；merge-patch既有失败[2,49,88]不变。限定回归无观察到能力下降，不证明通用能力等价或所有输出逐token相同。",
+    "一次基线token域错误未在唯一补测复现，根因仍未知。本次不声称修复该错误或历史性能波动；不改变默认参数以换取速度。"
+  ],
+  "files": {
+    "ninfer-serve.exe": "d55bd249bab9703090cc0d1f425f74489d0e5d93519b6cce0e86026880b11fc3",
+    "device-profiles.json": "d0d9360515479cf5345b259145cc4d2db9bf7b9f478997566a7a1cb5e02042e5",
+    "avcodec-62.dll": "d9a8d4f932abfa6e8b6a78b98de04c26c2a4ee5613968dd729f585ba5eeeaa8b",
+    "avformat-62.dll": "fc5da7ee5113c18977c1b53eec20cf5179760fcaedbec2f0601234d64b350263",
+    "avutil-60.dll": "75edd5af53850bada55f5d34ced3013d9cfbf84fe9648a7ab716acc9dfdbddf6",
+    "cublas64_12.dll": "0a60a7ecbf906f7f3842826fecaf412f1587ff6269729339245a1ec224364161",
+    "cublasLt64_12.dll": "a21ddfc1c9cd090ab07d2c6aad235aa4f15fe60fe896d5db28adf7a279c09ef3",
+    "cudart64_12.dll": "9d9b868955149875ac4ef43442aaaa8913d4a7b3e4d6dd60ee871626aa045768",
+    "libcurl.dll": "7c121a4539a8738aa6885879d71bdad0c3920eaf6dfe09f5495c1a7cabe4c902",
+    "swresample-6.dll": "47086f925d4dbd2bfb04342586272ba86fa38ea3941279655c6011fe0d492e3e",
+    "swscale-9.dll": "08a295a305788c3ead5a68dc63066e94e8555d1b215376aacd9106a2d8f7728c",
+    "z.dll": "b406ffb777c19af2275881638823ac93480c4f8031e3f6de39fa544b01799738",
+    "LICENSE": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6",
+    "NOTICE.txt": "9bebffda5a810f51e747ba05cb757da4086cbd21ecb3f19ca0ce2e43b5d1ac9e",
+    "adoption.json": "181613c2247bb5a8458603bf7d079ed451a8bc281bbfa1e773639973a90cdb2d",
+    "decision.txt": "1b1f502a4bf0fffdb2cbaabd994f4c8f828fc7c93456c225fb90005b1d53f52c",
+    "baseline-frozen.json": "593464b7761fb814ae75b60b85b9c8f76c469fcf23d1594754c172f1339f80a6",
+    "candidate-frozen.json": "b90fc96f5b06d99c29db30ab84b9b25a52dfee15b171da9ed1cdec9e22c08860",
+    "q5-only.patch": "17a7029d8bb4df94da1a7732e102616c80012d25a3e477716a460221d511c7b9",
+    "patch-artifact-repair.json": "3209a396e3f661d306172b5370e3a6aebb49703ca06d443d88dadfa94600a6ed",
+    "performance-summary.json": "8b6581fd9bb9998ebc2510317fea17d2fb0fd28a783acccb59e2062c21431147",
+    "performance-summary.txt": "bb8ec1722202f4ea4d75b0d522e009654c0f04bdf1e9a331da1a4813657f3d7b",
+    "quality-audit-final.json": "061ec301eb76d4f168d0b91034ffffe61c9ea30b531e66a9c12dacf15e6f8e5a",
+    "quality-audit-final.txt": "b0345b0e65df765e8ee2edd9d4ff33ce87cfcbf1f0094e15a751f91bcea82488",
+    "performance-phase.json": "b4e6c4044838f32e7dee77f7bbae146c3328459c374934cbcd58d72e44463c56",
+    "quality-phase.json": "900278ff681aeb934a30247a5f0c37253826462f15e646f861f898683b47078b",
+    "vision-phase.json": "0be72aa80f5854b195758c8a194a875987416e8ddbbbc890a280d9daccf7eb17",
+    "supplement-phase.json": "43a2fb0945f48ccf1fbbaf2b97d881efa728301ad1328322d419884c8da2fb2b",
+    "supplement-plan.json": "17e31a17219b2b0c572868e92f0013f98cee97bda573713cbc9ab6862666acf4",
+    "baseline-failure.json": "708992beff48e3ca155ffa03d31a7d44d40eb4e3c9398633f9b03b5dbbdb7d9e",
+    "baseline-failure.txt": "4ca673d59078fc520cf77cdebeb52455326ec4c1b50a829631f7389f16cb87bf",
+    "public-candidate-test.log": "8a4393e64426eed2ca8d9b09c7a3f6aa37a0bbf5dde9f3ed40cd92c972ee6118",
+    "numerical-qualification.json": "5291587de55cca1dbc84cb3b4da752b06f0f82a1fa6de322b3eed6a39e24d888",
+    "adoption-review.json": "94408bb50bf45b9a2f07467aa33815021739b53e0faa41b586eabde93ab2e55f"
+  },
+  "entrypoint_backups": [
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\start-fusion-sm75-coder390-100k-lan.bat",
+      "existed": true,
+      "backup": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\entrypoints-before-q5\\00-start-fusion-sm75-coder390-100k-lan.bat",
+      "sha256": "dabea33315e37b25373210fba1304d9cb545b6c64178383863eef2787263a001"
+    },
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\start-fusion-sm75-coder390-100k-vision-overlay-lan.bat",
+      "existed": true,
+      "backup": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\entrypoints-before-q5\\01-start-fusion-sm75-coder390-100k-vision-overlay-lan.bat",
+      "sha256": "755526c12b29fcd6d3b6957c0bbebedcfebc9fc8f0e68d176fc17feff53c04ad"
+    },
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\upgrade-staging\\fusion-sm75\\sm75\\current-release.json",
+      "existed": true,
+      "backup": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\entrypoints-before-q5\\02-current-release.json",
+      "sha256": "74f748335784c6a57c02d3c5c6ae7a8b772135b5249de983cf17fb8b6a51d1c1"
+    },
+    {
+      "path": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\decode-next-20261013\\deployment.json",
+      "existed": false,
+      "backup": null,
+      "sha256": null
+    }
+  ]
+}

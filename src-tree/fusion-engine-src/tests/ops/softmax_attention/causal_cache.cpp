@@ -2747,7 +2747,7 @@ int run_a1_case(const Geometry& geometry, KvCacheStorage storage, const Attentio
 }
 
 int run_a3_case(const Geometry& geometry, const CachePlan& plan, const AttentionCase& test_case,
-                MappingPattern mapping) {
+                MappingPattern mapping, std::span<const std::int32_t> oracle_tokens = {}) {
     const std::int32_t total       = test_case.base + test_case.tokens;
     const std::int32_t max_context = static_cast<std::int32_t>(
         std::max<std::uint32_t>(static_cast<std::uint32_t>(total + 3), test_case.envelope_max));
@@ -2765,7 +2765,25 @@ int run_a3_case(const Geometry& geometry, const CachePlan& plan, const Attention
         test_case.wide_verification, test_case.small_prefill};
 
     const HostCache cache_host = make_cache(geometry, plan, max_context, test_case.seed + 10u);
-    const std::vector<double> reference = ideal_attention(q, cache_host, positions);
+    // A long-context prompt still launches every query row. Select a few complete query tokens
+    // only for the independent FP64 oracle; each selected token retains every head/dimension and
+    // its full causal history. This bounds CPU work without shortening the device operation.
+    const std::size_t query_row = static_cast<std::size_t>(kHeadDim) * geometry.q_heads;
+    std::vector<float> sampled_q;
+    std::vector<std::int32_t> sampled_positions;
+    std::int32_t previous_sample = -1;
+    for (const std::int32_t token : oracle_tokens) {
+        if (token <= previous_sample || token >= test_case.tokens) {
+            throw std::invalid_argument("attention oracle tokens must be increasing valid indices");
+        }
+        const auto begin = q.begin() + static_cast<std::size_t>(token) * query_row;
+        sampled_q.insert(sampled_q.end(), begin, begin + query_row);
+        sampled_positions.push_back(positions[static_cast<std::size_t>(token)]);
+        previous_sample = token;
+    }
+    const std::vector<double> reference =
+        oracle_tokens.empty() ? ideal_attention(q, cache_host, positions)
+                              : ideal_attention(sampled_q, cache_host, sampled_positions);
     DeviceCache cache(cache_host, mapping);
 
     const std::vector<std::uint16_t> q_bits = to_bf16_bits(q);
@@ -2794,11 +2812,23 @@ int run_a3_case(const Geometry& geometry, const CachePlan& plan, const Attention
         test_case.graph_replay);
 
     const std::string label =
-        case_label("causal_softmax_attention_cached", geometry, plan, test_case, mapping);
+        case_label("causal_softmax_attention_cached", geometry, plan, test_case, mapping) +
+        (oracle_tokens.empty() ? "" : " oracle-query-tokens=" + std::to_string(oracle_tokens.size()));
     const std::vector<std::uint16_t> output_bits =
         copy_from_guarded<std::uint16_t>(dout, q_bits.size());
-    int failures = verify_attention(label, bf16_bits_to_double(output_bits), reference,
-                                    attention_criterion(plan));
+    const std::vector<double> actual = bf16_bits_to_double(output_bits);
+    std::vector<double> sampled_actual;
+    for (const std::int32_t token : oracle_tokens) {
+        const auto begin = actual.begin() + static_cast<std::size_t>(token) * query_row;
+        sampled_actual.insert(sampled_actual.end(), begin, begin + query_row);
+    }
+    int failures = verify_attention(label, oracle_tokens.empty() ? actual : sampled_actual,
+                                    reference, attention_criterion(plan));
+    if (!oracle_tokens.empty() &&
+        !std::all_of(actual.begin(), actual.end(), [](double value) { return std::isfinite(value); })) {
+        std::cerr << label << ": a full-width output row is unwritten or non-finite\n";
+        ++failures;
+    }
     failures += verify_cache(label + " cache unchanged", cache.snapshot(), cache_host, true);
     failures += verify_input(label + " q unchanged", dq, q_bits);
     failures += verify_positions(label + " positions unchanged", dp, positions);
@@ -3686,6 +3716,29 @@ int run_fp8_prompt_cases() {
 // so the packed value plane (and its shared-memory scale layout in both the prompt and
 // small-T routes) needs direct oracle coverage here. Unlike FP8, INT4 packing needs no
 // arch feature, so these cases run on every build the INT8 cases run on.
+int run_rk8v4_prompt_boundary_cases() {
+    const Geometry& geometry = kGeometries[0];
+    int failures = 0;
+    // Causal endpoints on either side of the 32-token staging and 64-token page boundaries.
+    // Widths exceed the small verification domain, so these are public prompt operations.
+    // Non-identity physical pages and unequal head/dimension values expose stale or misindexed
+    // codes/scales; partial final query/key tiles must not consume the populated future cache.
+    for (const std::int32_t tokens : {31, 32, 33, 63, 64, 65}) {
+        failures += run_a3_case(geometry, kPlanRk8v4,
+                                {tokens, 0, static_cast<std::uint32_t>(tokens), 631u},
+                                MappingPattern::Fragmented);
+    }
+    // The deployed prompt chunk, including append, page crossing and repeated graph execution.
+    failures += run_a1_case(geometry, kPlanRk8v4, {384, 63, 447, 632u, false, true},
+                            MappingPattern::Fragmented);
+    // Keep all 384 GPU query rows over 95K keys; reference the first and last complete query
+    // tokens against all their visible keys. Cache immutability and guards remain full-size.
+    constexpr std::array<std::int32_t, 2> sampled_tokens{0, 383};
+    failures += run_a3_case(geometry, kPlanRk8v4, {384, 94616, 95000, 633u},
+                            MappingPattern::Fragmented, sampled_tokens);
+    return failures;
+}
+
 int run_rk8v4_cases() {
     std::cout << "  rk8v4 (INT8-G64 rotated keys + packed INT4 G32 values):\n";
     int failures = 0;
@@ -3709,6 +3762,7 @@ int run_rk8v4_cases() {
                             MappingPattern::Identity);
     failures += run_a1_case(kGeometries[0], kPlanRk8v4, {1, 16384, 16385, 617u},
                             MappingPattern::Fragmented);
+    failures += run_rk8v4_prompt_boundary_cases();
     return failures;
 }
 
@@ -4193,6 +4247,7 @@ int run_softmax_attention_pack_gqa_tests() {
     if (cuda_unavailable()) return 77;
     int failures = run_int8_prompt_cases(false);
     for (const Geometry& geometry : kGeometries) { failures += run_geometry(geometry); }
+    failures += run_rk8v4_prompt_boundary_cases();
     failures += run_rk4v4_e8_cases();
     failures += run_rk2v4_e8_cases();
     std::cout << (failures ? "FAIL" : "PASS") << " packed-GQA INT8 prompt causal attention\n";

@@ -1,0 +1,225 @@
+{
+  "date": "2026-10-14",
+  "scope": "Source synchronization and compact historical evidence only; no new model run, build, binary release or default change.",
+  "copied_records": [
+    {
+      "file": "sm75/results/20261012-engine/decision.txt",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\archive\\20261014-before-rollback\\repository-results\\20261012-engine\\decision.txt",
+      "sha256": "ec27437ce8babcfcd62bce8f95aa9af5bcc6bab234d364b66776631d6ceeda8d"
+    },
+    {
+      "file": "sm75/results/20261012-engine/deployment.json",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\archive\\20261014-before-rollback\\repository-results\\20261012-engine\\deployment.json",
+      "sha256": "e8ba00cb0585b6102067b3598b85e405436f3bbb6739ccf2fce09eeba83a8e75"
+    },
+    {
+      "file": "sm75/results/20261012-decode/decision.txt",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\archive\\20261014-before-rollback\\repository-results\\20261012-decode\\decision.txt",
+      "sha256": "0a2e9645db464c7bb7a2cb4a0a8a4c0b8e9f06d027b52f9f6fb43a7fda3e4262"
+    },
+    {
+      "file": "sm75/results/20261013-decode/decision.txt",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\archive\\20261014-before-rollback\\repository-results\\20261013-decode\\decision.txt",
+      "sha256": "93811e3e5023d0f8aa8ad3f5302f4ac9b2fbd231599309db2cd9f5102955a9cb"
+    },
+    {
+      "file": "sm75/results/20261013-q5decode/decision.txt",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\releases\\fusion-43c39c6-sm75-q5load\\decision.txt",
+      "sha256": "1b1f502a4bf0fffdb2cbaabd994f4c8f828fc7c93456c225fb90005b1d53f52c"
+    },
+    {
+      "file": "sm75/results/20261013-q5decode/quality-audit-final.txt",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\releases\\fusion-43c39c6-sm75-q5load\\quality-audit-final.txt",
+      "sha256": "b0345b0e65df765e8ee2edd9d4ff33ce87cfcbf1f0094e15a751f91bcea82488"
+    },
+    {
+      "file": "sm75/results/20261013-q5decode/baseline-failure.txt",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\releases\\fusion-43c39c6-sm75-q5load\\baseline-failure.txt",
+      "sha256": "4ca673d59078fc520cf77cdebeb52455326ec4c1b50a829631f7389f16cb87bf"
+    },
+    {
+      "file": "sm75/results/20261013-q5decode/candidate-frozen.json",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\releases\\fusion-43c39c6-sm75-q5load\\candidate-frozen.json",
+      "sha256": "b90fc96f5b06d99c29db30ab84b9b25a52dfee15b171da9ed1cdec9e22c08860"
+    },
+    {
+      "file": "sm75/results/20261013-q5decode/numerical-qualification.json",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\releases\\fusion-43c39c6-sm75-q5load\\numerical-qualification.json",
+      "sha256": "5291587de55cca1dbc84cb3b4da752b06f0f82a1fa6de322b3eed6a39e24d888"
+    },
+    {
+      "file": "sm75/results/20261013-t5-c0-recheck/decision.txt",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\archive\\20261014-before-rollback\\benchmarks\\t5-c0-recheck-20261013\\decision.txt",
+      "sha256": "c10577d9ce1eba684892a3cec20913a8ad376d96d61537ac2bb6a5795df1a68f"
+    },
+    {
+      "file": "sm75/results/20261013-token-domain-diagnostic/decision.txt",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\archive\\20261014-before-rollback\\benchmarks\\token-domain-diag-20261013\\decision.txt",
+      "sha256": "c5b7205f5a29c732f870f33ec0c619ca652b41adbf972ae11dfcb600ec92c7c3"
+    },
+    {
+      "file": "sm75/results/20261014-original/decision.txt",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\original-sm75-20261014\\decision.txt",
+      "sha256": "c51e502f041e14fa894fce5de84f4d88c8edb616b683634359320f8e0cb4b7ce"
+    },
+    {
+      "file": "sm75/results/20261014-original/summary.json",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\original-sm75-20261014\\summary.json",
+      "sha256": "410ddbc243cd5cd1bb6fed3e5cd05f72e45c401142081ca690500097bcf65a20"
+    },
+    {
+      "file": "sm75/results/20261014-swift/decision.txt",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\swift-model-20261014\\decision.txt",
+      "sha256": "effa007adcbbb7ded5673af96b1d6b68e59920575a16023c0e5ff3d51567b42a"
+    },
+    {
+      "file": "sm75/results/20261014-swift/summary.json",
+      "original_local_path": "D:\\AI\\ninfer-fusion-kvmem\\benchmarks\\swift-model-20261014\\summary.json",
+      "sha256": "88a98d4f2d32f9e9dc026d3dbc8b52dcb19b8dadab5c8d1a30285551e769b7e2"
+    }
+  ],
+  "historical_fault_events": [
+    {
+      "build_context": "old root executable, FP32 GDN / MTP3",
+      "source_local_path": "D:\\AI\\ninfer-fusion-kvmem\\archive\\20261014-before-rollback\\benchmarks\\tuning-20261010\\fp32-m3\\stderr.log",
+      "source_sha256": "ce3c8fb84e88ceb4fac70e3f4e1f3dda1eb61e43e8e99cdb860cc662960b5769",
+      "illegal_token_events": 1,
+      "nan_directly_observed": false,
+      "log_excerpts": [
+        {
+          "line": 76,
+          "text": "2026-10-10 04:12:32.476  ERROR engine | worker crash: target returned a token outside the public token domain"
+        }
+      ]
+    },
+    {
+      "build_context": "I-drive RC3, quality baseline",
+      "source_local_path": "I:\\NInfer KVMem\\benchmarks\\rc3-tuning-20261012\\09-quality-baseline\\01\\server.log",
+      "source_sha256": "520f0a0981518c85a88d532137900531ab90fc58a2417d87a2384af5faf40c99",
+      "illegal_token_events": 1,
+      "nan_directly_observed": false,
+      "log_excerpts": [
+        {
+          "line": 135,
+          "text": "2026-10-12 20:06:01.394  ERROR engine | worker crash: target returned a token outside the public token domain"
+        }
+      ]
+    },
+    {
+      "build_context": "I-drive RC3, fixed2 confirm",
+      "source_local_path": "I:\\NInfer KVMem\\benchmarks\\rc3-tuning-20261012\\17-fixed2-confirm\\01\\server.log",
+      "source_sha256": "2e257843474bc7791ad0cef895948f012c98ce0fc1e8fe3673725488e4c84e51",
+      "illegal_token_events": 1,
+      "nan_directly_observed": false,
+      "log_excerpts": [
+        {
+          "line": 74,
+          "text": "2026-10-12 20:48:41.502  ERROR engine | worker crash: target returned a token outside the public token domain"
+        }
+      ]
+    },
+    {
+      "build_context": "I-drive RC3, fixed4 diagnostic",
+      "source_local_path": "I:\\NInfer KVMem\\benchmarks\\rc3-tuning-20261012\\22-agents-fixed4\\server.log",
+      "source_sha256": "e8ef3f4e8e7c5b9a4275050c8d3af38e96ba13854a60f078af8e67b8c068cf91",
+      "illegal_token_events": 1,
+      "nan_directly_observed": true,
+      "log_excerpts": [
+        {
+          "line": 91,
+          "text": "2026-10-12 22:12:28.760  ERROR engine | worker crash: target returned a token outside the public token domain: token=-1, public_token_count=248077, licensed_count=1, frontier=10960, accepted=0, extent=4, target_logits=[nan=248320,inf=0][nan=248320,inf=0][nan=248320,inf=0][nan=248320,inf=0][nan=248320,inf=0], proposal_logits=[nan=248320,inf=0]"
+        }
+      ]
+    },
+    {
+      "build_context": "q6load, performance 04-old",
+      "source_local_path": "D:\\AI\\ninfer-fusion-kvmem\\archive\\20261014-before-rollback\\benchmarks\\decode-next-20261013\\performance\\04-old\\stderr.log",
+      "source_sha256": "97bbc5669981879339727f6fb74c4b1616bc30deba3e4c81d382af709692b68f",
+      "illegal_token_events": 1,
+      "nan_directly_observed": false,
+      "log_excerpts": [
+        {
+          "line": 87,
+          "text": "2026-10-13 03:53:33.917  ERROR engine | worker crash: target returned a token outside the public token domain"
+        }
+      ]
+    },
+    {
+      "build_context": "C0 candidate, text quality",
+      "source_local_path": "D:\\AI\\ninfer-fusion-kvmem\\archive\\20261014-before-rollback\\benchmarks\\t5-c0-recheck-20261013\\quality\\text-run\\stderr.log",
+      "source_sha256": "8a50ff3f9dbed066659d2ba60d28c77fec104b7f07aefddd2669573f636c58a5",
+      "illegal_token_events": 1,
+      "nan_directly_observed": false,
+      "log_excerpts": [
+        {
+          "line": 281,
+          "text": "2026-10-13 15:22:56.795  ERROR engine | worker crash: target returned a token outside the public token domain"
+        }
+      ]
+    },
+    {
+      "build_context": "C0 host diagnostic",
+      "source_local_path": "D:\\AI\\ninfer-fusion-kvmem\\archive\\20261014-before-rollback\\benchmarks\\token-domain-diag-20261013\\c0-run\\stderr.log",
+      "source_sha256": "198305afa30ae812a5f51cf1f612928399c6fda68b599379027e7c005af7e158",
+      "illegal_token_events": 1,
+      "nan_directly_observed": true,
+      "log_excerpts": [
+        {
+          "line": 209,
+          "text": "TOKEN_DOMAIN_DIAG public_logits column=0 position=27164 argmax=0 argmax_in_domain=1 selected_bf16=0x7fff finite=0 nan=248077 posinf=0 neginf=0 first_nonfinite=0"
+        },
+        {
+          "line": 210,
+          "text": "TOKEN_DOMAIN_DIAG target_hidden column=0 finite=0 nan=5120 posinf=0 neginf=0 first_nonfinite=0"
+        },
+        {
+          "line": 211,
+          "text": "TOKEN_DOMAIN_DIAG public_logits column=1 position=27165 argmax=0 argmax_in_domain=1 selected_bf16=0x7fff finite=0 nan=248077 posinf=0 neginf=0 first_nonfinite=0"
+        },
+        {
+          "line": 212,
+          "text": "TOKEN_DOMAIN_DIAG target_hidden column=1 finite=0 nan=5120 posinf=0 neginf=0 first_nonfinite=0"
+        },
+        {
+          "line": 213,
+          "text": "TOKEN_DOMAIN_DIAG public_logits column=2 position=27166 argmax=0 argmax_in_domain=1 selected_bf16=0x7fff finite=0 nan=248077 posinf=0 neginf=0 first_nonfinite=0"
+        },
+        {
+          "line": 214,
+          "text": "TOKEN_DOMAIN_DIAG target_hidden column=2 finite=0 nan=5120 posinf=0 neginf=0 first_nonfinite=0"
+        },
+        {
+          "line": 215,
+          "text": "TOKEN_DOMAIN_DIAG public_logits column=3 position=27167 argmax=0 argmax_in_domain=1 selected_bf16=0x7fff finite=0 nan=248077 posinf=0 neginf=0 first_nonfinite=0"
+        },
+        {
+          "line": 216,
+          "text": "TOKEN_DOMAIN_DIAG target_hidden column=3 finite=0 nan=5120 posinf=0 neginf=0 first_nonfinite=0"
+        },
+        {
+          "line": 217,
+          "text": "TOKEN_DOMAIN_DIAG public_logits column=4 position=27168 argmax=0 argmax_in_domain=1 selected_bf16=0x7fff finite=0 nan=248077 posinf=0 neginf=0 first_nonfinite=0"
+        },
+        {
+          "line": 218,
+          "text": "TOKEN_DOMAIN_DIAG target_hidden column=4 finite=0 nan=5120 posinf=0 neginf=0 first_nonfinite=0"
+        },
+        {
+          "line": 221,
+          "text": "2026-10-13 16:43:08.036  ERROR engine | worker crash: target returned a token outside the public token domain"
+        }
+      ]
+    }
+  ],
+  "event_count_lower_bounds": {
+    "illegal_token": 7,
+    "direct_nan": 2
+  },
+  "limitations": [
+    "The two NaN events are included in the seven illegal-token events; they must not be added together.",
+    "These are different builds and configurations, not seven q5load failures or a measured failure rate.",
+    "No directly captured NaN or illegal-token event is established for the unchanged q5load release in these reviewed records.",
+    "The absence of a capture is not proof of absence; same-seed text divergence is separately observed in q5load.",
+    "Local paths in historical records refer to retained artifacts outside this Git repository; they are not downloadable repository paths."
+  ]
+}

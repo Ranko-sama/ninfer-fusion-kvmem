@@ -1,0 +1,27 @@
+{
+  "baseline_release": "fusion-43c39c6-sm75-q6load",
+  "baseline_sha256": "b9bf940b8d2f33182e8e873c6e464c27f33f47603bb25ccd47fa6c9d2aff428a",
+  "executable_sha256": "d55bd249bab9703090cc0d1f425f74489d0e5d93519b6cce0e86026880b11fc3",
+  "profile_sha256": "d0d9360515479cf5345b259145cc4d2db9bf7b9f478997566a7a1cb5e02042e5",
+  "source": {
+    "src-tree/fusion-engine-src/src/ops/linear/gguf/ggml_bridge_vec.cuh": "3b83468864963fc1e5af37dc6cc9e7633369f771a64ad120e6c22fb0d4df2ba5",
+    "src-tree/fusion-engine-src/tests/ops/linear/test_gguf.cpp": "aab7bc2ccd859e2f2fd769e52bb777cf16331b2cfcde8b4783a4722278d066fd"
+  },
+  "dll_sha256": {
+    "avcodec-62.dll": "d9a8d4f932abfa6e8b6a78b98de04c26c2a4ee5613968dd729f585ba5eeeaa8b",
+    "avformat-62.dll": "fc5da7ee5113c18977c1b53eec20cf5179760fcaedbec2f0601234d64b350263",
+    "avutil-60.dll": "75edd5af53850bada55f5d34ced3013d9cfbf84fe9648a7ab716acc9dfdbddf6",
+    "cublas64_12.dll": "0a60a7ecbf906f7f3842826fecaf412f1587ff6269729339245a1ec224364161",
+    "cublasLt64_12.dll": "a21ddfc1c9cd090ab07d2c6aad235aa4f15fe60fe896d5db28adf7a279c09ef3",
+    "cudart64_12.dll": "9d9b868955149875ac4ef43442aaaa8913d4a7b3e4d6dd60ee871626aa045768",
+    "libcurl.dll": "7c121a4539a8738aa6885879d71bdad0c3920eaf6dfe09f5495c1a7cabe4c902",
+    "swresample-6.dll": "47086f925d4dbd2bfb04342586272ba86fa38ea3941279655c6011fe0d492e3e",
+    "swscale-9.dll": "08a295a305788c3ead5a68dc63066e94e8555d1b215376aacd9106a2d8f7728c",
+    "z.dll": "b406ffb777c19af2275881638823ac93480c4f8031e3f6de39fa544b01799738"
+  },
+  "runtime_dll_storage": "hardlinks to immutable q6load DLLs",
+  "public_test_log_sha256": "8a4393e64426eed2ca8d9b09c7a3f6aa37a0bbf5dde9f3ed40cd92c972ee6118",
+  "build_log_sha256": "6cbb38af2545048d0030e596ae4017f2ed3f1e9cb8c3365c3e4d74b8131c7428",
+  "tests_executable_sha256": "2213a37836c1039f0039ba9d5de15523385851d35ef2b66c9914a494e5dd0dbc",
+  "parameters_changed": false
+}

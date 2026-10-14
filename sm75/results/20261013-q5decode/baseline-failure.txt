@@ -1,0 +1,60 @@
+Bounded baseline-failure record, 2026-10-13
+
+Identity and outcome
+The failure is performance/04-old, request5 long-decode, PID20416,
+server_instance_id serve-20416-1791834522730018. Recorded command and server_start
+argv both identify releases/fusion-43c39c6-sm75-q6load/ninfer-serve.exe.
+Baseline SHA256 b9bf940b8d2f33182e8e873c6e464c27f33f47603bb25ccd47fa6c9d2aff428a
+matches the pre/post performance audit; input_hashes_unchanged is true.
+This is not the Q5 candidate EXE d55bd249bab9703090cc0d1f425f74489d0e5d93519b6cce0e86026880b11fc3.
+
+Request started2026-10-13T03:52:41.055+08:00, failed03:53:33.917+08:00,
+52.862s later. Error Unix timestamp1791834813917ms. The request is streaming,
+5messages, max2048 output tokens, seed175, temperature1,top-k20,top-p~0.95,
+thinking/xhigh. Server startup records MTP4/RK8V4/chunk384/concurrency1.
+stderr reports worker crash, engine failed with1 lane in flight, and request5
+generation failure with HTTP500. requests.jsonl records request_error:
+  target returned a token outside the public token domain
+The client harness received an SSE error with type internal_error and raised;
+performance-phase.json records complete=false, performance exited1.
+
+Tokens available from retained evidence
+There is no long-decode.result.json and request_error has no output/token count.
+The harness quality.py:134 raises on an SSE error before writing its result file;
+already accumulated content/reasoning is not preserved there. Consequently the
+exact published-token count, exact client-received count, and exact completion
+count cannot be recovered from these retained files.
+Nine throughput intervals wholly inside request5 contain1568 committed_decode
+tokens in total. This is only a lower bound for engine commits, not a count of
+tokens received by the client. The first interval crosses request4/request5 and
+is excluded; the final partial interval was not logged. Do not sum those mixed
+or missing intervals into an invented exact count.
+
+Existing source boundary (read-only inspection, no bug fix)
+src/models/qwen3_5/program/decode.cpp:401-407 defines validate_licensed_tokens.
+It throws at404 when token<0 or token>=public_token_count. This is a generated
+token-domain check, not a prompt/context-length check. The matching configured
+MTP route synchronizes the device, checks row metadata, then calls this validator
+on mtp_host_egress licensed_tokens at726, before setting PendingCandidate and
+returning the BatchedGeneratedRound. Thus the invalid round is rejected at that
+boundary rather than accepted as a valid generated round.
+There is no stack trace, offending token value, or public-token upper bound in
+the error record. This source match does not establish which producer caused the
+invalid value, or whether any upstream arithmetic/state/sampling issue exists.
+The Q5 product delta does not edit this boundary, and the failed process loaded
+the prior q6load release. No root cause is assigned by this bounded review.
+
+Comparison limitation and disposition
+01-old and both candidate rounds02-new/03-new completed.04-old completed warmup,
+short-decode,long-first,long-followup but failed long-decode. Original ABBA is
+therefore incomplete for long-decode; do not treat a one-baseline aggregate as
+two successful baseline samples. Candidate success here does not demonstrate
+better capability or a fix for this baseline error.
+Retain the failure and all raw files. Root authorized at most one identical
+baseline retry, to be recorded separately; it must not overwrite or erase this
+observation. The validation agent owns the separate retry/summary. This review
+performed only CPU reads/analysis, no GPU access, product edit, historical
+fluctuation investigation or additional retry request.
+
+Machine-readable identities, interval counts, source boundary and raw hashes:
+baseline-failure.json in this directory.

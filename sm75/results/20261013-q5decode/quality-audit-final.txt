@@ -1,0 +1,16 @@
+Quality adoption gate: pass (True)
+This gate requires complete identity, CPU regrades, no newly failing case/task, and raw capability facts.
+quality-short: complete; audit=True; no_regression=True
+  old: answers 3/3; code cases 444/447
+  new: answers 3/3; code cases 444/447
+  topological-sort: old_fail=[]; new_fail=[]; newly_failed=[]; improved=[]; shared=[]; new_vs_historical=[]; improved_vs_historical=[]
+  shortest-subarray: old_fail=[]; new_fail=[]; newly_failed=[]; improved=[]; shared=[]; new_vs_historical=[]; improved_vs_historical=[]
+  merge-patch: old_fail=[2, 49, 88]; new_fail=[2, 49, 88]; newly_failed=[]; improved=[]; shared=[2, 49, 88]; new_vs_historical=[]; improved_vs_historical=[]
+quality-context: complete; audit=True; no_regression=True
+  old: answers 3/3; code cases 444/447
+  new: answers 3/3; code cases 444/447
+  topological-sort: old_fail=[]; new_fail=[]; newly_failed=[]; improved=[]; shared=[]; new_vs_historical=[]; improved_vs_historical=[]
+  shortest-subarray: old_fail=[]; new_fail=[]; newly_failed=[]; improved=[]; shared=[]; new_vs_historical=[]; improved_vs_historical=[]
+  merge-patch: old_fail=[2, 49, 88]; new_fail=[2, 49, 88]; newly_failed=[]; improved=[]; shared=[2, 49, 88]; new_vs_historical=[]; improved_vs_historical=[]
+Vision/capability raw facts: {"arithmetic": true, "tool_call": true, "cancel_mid_prefill": true, "server_confirmed_cancel": true, "cancel_retry_1": true, "cancel_retry_2": true, "vision_dashboard": true, "vision_chinese-ui": true, "vision_code-editor-dense": true, "long_cold_prompt": true, "long_later_records": true, "long_earlier_records": true}
+Full per-case comparisons, source paths and SHA256: D:\AI\ninfer-fusion-kvmem\benchmarks\decode-next-20261013\quality-audit-final.json

@@ -15,6 +15,7 @@
 #include "ops/softmax_attention/dense/causal_cache/prompt_common.cuh"
 
 #include <cstdint>
+#include <type_traits>
 
 // Swept on sm_86: the shipped 120 comes from an SM120 tuning note, and shared memory (93,184 B of
 // the 99 KiB budget) pins this kernel to one CTA per SM on either card, so registers cannot buy
@@ -170,6 +171,11 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
     const std::int32_t* __restrict__ positions, float scale, __nv_bfloat16* __restrict__ out,
     std::int32_t width) {
     constexpr bool PackedKeys   = Keys != KvKeyCoding::Int8;
+#if defined(NINFER_SM75)
+    constexpr bool EarlyFetch   = !PackedKeys;
+#else
+    constexpr bool EarlyFetch   = false;
+#endif
     constexpr int D             = kCausalPromptHeadDim;
     constexpr int Br            = kCausalPromptI8Br;
     constexpr int Bc            = kCausalPromptI8Bc;
@@ -393,6 +399,82 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
         ninfer::ops::cp_commit();
     };
 
+    // SM75's cp.async fallback is a synchronous load/store. Hold the next raw tile in
+    // registers while the current QK/softmax and value decode run, then publish it at
+    // the existing tile barrier. Releasing these registers before PV avoids overlap
+    // with its temporary MMA operands and tile accumulators; no stage or barrier is added.
+    using ValueChunk    = std::conditional_t<PackedValues, int2, int4>;
+    using ValueScaleRow = std::conditional_t<PackedValues, int4, int2>;
+    static_assert(!EarlyFetch || Bc <= kCausalPromptI8Threads);
+    int4 k_next[EarlyFetch ? KChunksPerThread : 1];
+    ValueChunk v_next[EarlyFetch ? KChunksPerThread : 1];
+    int2 k_scale_next{};
+    ValueScaleRow v_scale_next{};
+    const auto fetch_next_kv_tile = [&](int tile_k0) {
+        if constexpr (EarlyFetch) {
+            const int physical_page = block_table[tile_k0 >> kPagedKVPageShift];
+            const int page_offset   = tile_k0 & kPagedKVPageMask;
+            if (tid < Bc) {
+                k_scale_next = int2{};
+                v_scale_next = ValueScaleRow{};
+                if (tile_k0 + tid <= max_query_abs) {
+                    const std::int64_t off = kv_cache_int8_quant_scale_index<Geometry>(
+                        physical_page, kv_head, 0, page_offset + tid);
+                    k_scale_next = load_vec<int2>(&cache_k_scale[off]);
+                    if constexpr (PackedValues) {
+                        const std::int64_t voff = kv_cache_int4_value_scale_index<Geometry>(
+                            physical_page, kv_head, 0, page_offset + tid);
+                        v_scale_next = load_vec<int4>(&cache_v_scale[voff]);
+                    } else {
+                        v_scale_next = load_vec<int2>(&cache_v_scale[off]);
+                    }
+                }
+            }
+#pragma unroll
+            for (int i = 0; i < KChunksPerThread; ++i) {
+                const int chunk = tid + i * kCausalPromptI8Threads;
+                k_next[i]       = int4{};
+                v_next[i]       = ValueChunk{};
+                if (chunk < KChunks) {
+                    const int key_l = chunk / (D / 16);
+                    const int d     = (chunk - key_l * (D / 16)) * 16;
+                    if (tile_k0 + key_l <= max_query_abs) {
+                        const std::int64_t off = kv_cache_int8_quant_code_index<Geometry>(
+                            physical_page, kv_head, d, page_offset + key_l);
+                        k_next[i] = load_vec<int4>(&cache_k[off]);
+                        if constexpr (PackedValues) {
+                            const std::int64_t voff = kv_cache_int4_value_code_index<Geometry>(
+                                physical_page, kv_head, d >> 1, page_offset + key_l);
+                            v_next[i] = load_vec<int2>(
+                                reinterpret_cast<const std::uint8_t*>(cache_v) + voff);
+                        } else {
+                            v_next[i] = load_vec<int4>(&cache_v[off]);
+                        }
+                    }
+                }
+            }
+        }
+    };
+    const auto store_next_kv_tile = [&]() {
+        if constexpr (EarlyFetch) {
+            if (tid < Bc) {
+                store_vec(&k_scale_s[tid * Groups], k_scale_next);
+                store_vec(&v_scale_s[tid * VGroups], v_scale_next);
+            }
+#pragma unroll
+            for (int i = 0; i < KChunksPerThread; ++i) {
+                const int chunk = tid + i * kCausalPromptI8Threads;
+                if (chunk < KChunks) {
+                    const int key_l = chunk / (D / 16);
+                    const int dc    = chunk - key_l * (D / 16);
+                    store_vec(&k_i8[(key_l * DB16 + causal_prompt_swz(key_l, dc * 8)) * 2],
+                              k_next[i]);
+                    store_vec(&v_i8[key_l * D + (PackedValues ? dc * 8 : dc * 16)], v_next[i]);
+                }
+            }
+        }
+    };
+
     issue_kv_tile(0);
     commit_k_tile();
     ninfer::ops::cp_wait<0>();
@@ -434,6 +516,10 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
     const float scale_l2 = scale * Log2E;
     for (int kb = 0; kb < key_blocks; ++kb) {
         const int k0 = kb * Bc;
+        const bool has_next = kb + 1 < key_blocks;
+        if constexpr (EarlyFetch) {
+            if (has_next) { fetch_next_kv_tile((kb + 1) * Bc); }
+        }
         if (warp < ProducerWarps) {
             const int row_base = warp * 16;
             float score[QKNt][4];
@@ -626,8 +712,13 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
         }
         __syncthreads();
 
-        const bool has_next = kb + 1 < key_blocks;
-        if (has_next) { issue_kv_tile((kb + 1) * Bc); }
+        if (has_next) {
+            if constexpr (EarlyFetch) {
+                store_next_kv_tile();
+            } else {
+                issue_kv_tile((kb + 1) * Bc);
+            }
+        }
 
         const int row_tile = warp % kCausalPromptI8RowTiles;
         const int d_slice  = warp / kCausalPromptI8RowTiles;

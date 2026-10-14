@@ -1,1 +1,7 @@
 
+
+# Preserve frozen helper hashes across Windows and Unix checkouts.
+/tools/sm75/replay-original.py text eol=lf
+/tools/sm75/replay-swift.py text eol=lf
+# Historical evidence retains its original bytes and line endings.
+/sm75/results/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

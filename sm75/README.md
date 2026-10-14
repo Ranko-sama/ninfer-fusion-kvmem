@@ -1,135 +1,98 @@
 # RTX 2080 Ti 适配与维护
 
-本分支基于 `1314521gjy/ninfer-fusion-kvmem`，由 `Ranko-sama/ninfer-fusion-kvmem`
-维护 sm75 / Windows 兼容和性能优化。保留上游 LICENSE、NOTICE 和第三方署名。
-原项目的最新说明仍在仓库根 README；本文件负责本 Fork 的使用和升级流程。
+## 当前状态（2026-10-14）
 
-## 当前基线与范围
+本分支同步当前本地采用的 `fusion-43c39c6-sm75-q5load` 优化源码、测试、验证工具和精简历史记录。
+本次仅提交源码与记录，不构建或发布新二进制，不切换默认运行包，不重启模型实验。
+后续 C0 候选未采纳，其插桩与内核改动不在默认产品源码中。根因未解决，新的运行包采纳仍受阻断。
 
-- 上游基线、历史验证 EXE 哈希、工具链及硬件见 [baseline.json](baseline.json)。
-- 硬件是 RTX 2080 Ti **22528 MiB（22GB 改装卡）**、68 SM。100K 全 GPU KV 配置不能直接套用到 11GB 卡。
-- 实测模型为 Qwen3.8-27B-Coder390 Q3LynnStyle / Q8MTP；仓库不包含模型、运行库或 EXE。
-- 使用 RK8V4、FP16 GDN、MTP4、chunk 384、并发 1、100K 全 GPU KV；KVMem ring 关闭。
-- 没有重做模型量化或更改模型架构、KVMem 检索算法；改动包含核心 CUDA 算子实现。
-- 数值边界、兼容路径、历史实验和小池限制见[引擎适配记录](../src-tree/fusion-engine-src/docs/rtx-2080ti-windows.md)。该文中的本机路径属于历史记录，跨目录操作使用本指南。
+默认模型仍为 Coder390 Q8MTP。运行环境为 RTX 2080 Ti sm75 / 68 SM / 22528 MiB、
+Windows、CUDA 12.8.61、Python 3.11；100K 配置不是 11GB 原装卡的通用配方。
+固定配置为 RK8V4、FP16 GDN、MTP4、chunk384、102400 上下文/KV、并发1、无 KVMem ring，
+temperature1、top_p .95、top_k20、xhigh、94208 默认输出上限。
+完整参数见 [runtime-command.json](runtime-command.json)，本地默认包身份见
+[current-release.json](current-release.json)，[baseline.json](baseline.json) 保留较早的历史基线。
 
-2026-10-11 同参数六轮（旧、新、新、旧、旧、新）中位数：
+`current-release.json` 的 adoption/quality gate 是当时有限验证的采用记录，不代表后来发现的问题已解决。
+q5load 是实现包名，不是将整个模型重新量化为 Q5。新编译产物必须获得自己的身份与验收，
+不能将历史 EXE 的哈希或通过记录当作任意新构建的证明。
 
-| 指标 | 旧 UP | 本分支历史验证包 |
-| --- | ---: | ---: |
-| 短上下文固定 2048 token 生成 | 46.12 tok/s | 46.09 tok/s |
-| 95K 冷缓存首 token | 182.45 s | 181.54 s |
-| 95K 历史固定 2048 token 生成 | 32.44 tok/s | 32.43 tok/s |
+## 已采用优化与证据范围
 
-两版基本持平，不能将不同任务、输出长度或 MTP 接受率的结果直接比较。
-文本/视觉回归包括工具调用、取消后重试、95K 前后记录和三张精确转录图。
-2026-10-12 小型质量对照为两版各 5/6 题完全通过，代码各 444/447 用例通过；
-两版 6 题的正文和推理文本相同。JSON merge patch 新增嵌套 null 的 3 个失败是两版共同的失败，未隐藏。
-这是短上下文、温度 0、medium 推理的小样本，不代表所有任务能力等效。
-聚合读数和验收结果保存在 [results/20261012](results/20261012)。
+在原 SM75 兼容和 GDN/attention 优化基础上，本次源码包含：
 
-已知限制：小 GPU KV 池检索早期记录的历史实验只有 1/3 正确，本分支未修复该问题。
-新增工具并不把历史二进制的验证自动赋予后续重编译版本；每次源码更新后重新记录验证结果。
+- SM75 INT8-key prompt 下一块 KV 预取；见 [历史决定](results/20261012-engine/decision.txt)。
+- Q3_K fused T5、K5120 的对齐读取；见 [历史决定](results/20261012-decode/decision.txt)。
+- Q6_K 非融合 T5、N5120、K6144/17408 的对齐读取；见 [历史决定](results/20261013-decode/decision.txt)。
+- 同形状、16 字节对齐的 Q5_K packed-header 读取；见 [采用记录](results/20261013-q5decode/decision.txt)。
 
-## 仓库与分支
+保留原浮点运算、归约顺序和不满足条件时的原路径。Q5 公共数值资格及源码绑定见
+[numerical-qualification.json](results/20261013-q5decode/numerical-qualification.json) 和
+[candidate-frozen.json](results/20261013-q5decode/candidate-frozen.json)。这些是既有证据，本次没有重跑 CUDA 测试。
 
-- `origin`：自己的 Fork，用于推送自己的修改。
-- `upstream`：`https://github.com/1314521gjy/ninfer-fusion-kvmem.git`，用于读取上游。
-- `main`：保持上游历史，不混入本机适配。
-- `sm75`：持续维护的适配分支；发布过的提交不改写历史。
-- `update/<日期>`：升级候选分支；通过检查后再合回 `sm75`。
-- 标签 `sm75-v0.1.0`：首次整理后的源码基线，不是一个新编译 EXE 的验证声明。
+Q5 热点内核耗时降低约 3.1%–5.9%，不能等同于整机收益。原有限样本中短/长生成每轮耗时
+仅改善约 0.04% / 0.21%；短请求首 token 中位延迟增加约28ms，95K首问/追问吞吐下降约
+8.34% / 2.34%。样本有限且输出轨迹不一致，不能认定这些 API 变化均由优化造成。
+短/9K前缀双方均为444/447，三个既有失败相同，见 [质量对照](results/20261013-q5decode/quality-audit-final.txt)。
+这不证明通用能力等价、逐 token 一致或所有场景最快。
 
-新机器克隆后：
+## 已知问题必须按版本区分
 
-```powershell
-git clone -b sm75 https://github.com/Ranko-sama/ninfer-fusion-kvmem.git
-cd ninfer-fusion-kvmem
-git remote add upstream https://github.com/1314521gjy/ninfer-fusion-kvmem.git
-```
+| 版本或实验 | 同种子可见文本分叉 | 非法 token / NaN 的直接证据 |
+| --- | --- | --- |
+| 当前 q5load 原发布包 | 已观察到，Swift 短输入也出现 | 已核对记录中未确认非法 token；没有直接 NaN 捕获，不能据此排除 |
+| 较早 q6load | 本文不借其他版本结果代替验证 | 非法 token 已记录；当次未捕获内部 NaN |
+| 后续 C0 候选及主机诊断版 | 与旧输出不同不足以单独归因 | 非法 token 已出现，诊断版直接捕获 target hidden/logits 全 NaN；未采纳 |
+| I 盘 RC3 适配版 | 本文不代其做重复性结论 | 非法 token 多次出现，其中一次直接记录 logits 全 NaN；不是当前 q5load |
+| 第三方原始 SM75 包 | 两次冷启动在95K请求中出现 | 该次10请求未见非法 token；内部 NaN 未观测 |
 
-## 构建与启动
+已核对历史日志至少有7次独立非法 token 事件，其中2次直接捕获 NaN；两类次数不能相加，
+也不能称为 q5load 发生了7次故障。最早已找到的非法 token 日志为2026-10-10 04:12，
+来自旧根目录程序的 FP32 GDN / MTP3 配置。原始故障行、来源路径与哈希见
+[故障证据索引](results/20261014-sync/evidence-index.json)。旧版本同样出错不证明所有版本有同一根因，
+也不能将每次非法 token 都推定为 NaN。
 
-准备 Visual Studio 2022 C++ Build Tools / Windows SDK、CUDA 12.8、Python 3.11、
-CMake >=3.28、Ninja，以及含 FFmpeg / curl 的 vcpkg `installed/x64-windows` 依赖树。
-本机历史依赖版本在引擎适配记录中；脚本检查已有依赖，不自动安装或下载。
-将以下示例中的依赖、模型和引擎路径替换为自己的路径：
+C0 的 [验收失败记录](results/20261013-t5-c0-recheck/decision.txt) 与
+[NaN 直接捕获](results/20261013-token-domain-diagnostic/decision.txt) 单独保存。
+本分支没有通过 token 替换、clamp、重试或降低默认精度/上下文预算掩盖问题。
 
-```powershell
-./tools/sm75/build.ps1 -Action check -DependencyRoot D:/sdk -Python python
-./tools/sm75/build.ps1 -Action configure -DependencyRoot D:/sdk -Python python
-./tools/sm75/build.ps1 -Action build -DependencyRoot D:/sdk
-./tools/sm75/build.ps1 -Action test -DependencyRoot D:/sdk
-./tools/sm75/serve.ps1 -Engine ./build-sm75/apps/ninfer-serve.exe -Model D:/models/model.ninfer
-```
+## 已关闭的回退与模型检查
 
-默认构建目录为仓库内 `build-sm75`。升级候选使用新的 `-BuildDir`，不要覆盖已验证缓存。
-运行 EXE 需要对应 CUDA/FFmpeg/curl DLL；历史发行包带有这些依赖，新编译文件要按构建依赖配置 PATH 或在旁边放置 DLL。
-`serve.ps1` 默认仅监听 127.0.0.1；需要局域网访问时显式传 `-BindAddress`。
-`-Vision` 启用视觉 overlay，`-PrintCommand` 只展示配置而不启动服务。
-不同模型必须满足架构和 MTP 组件要求。这里保存的 device profile 仅是这张卡的已测基线，升级后应重新校准候选配置。
+- [回退消融](results/20261014-rollback/decision.txt)：同模型、请求、种子、profile与默认参数，
+  原q5修复题141/141，早期兼容包124/141，因此拒绝替换。q5补全题1200秒截止，
+  候选补全题主动停止，两者均未评分；超时或主动停止不能当作 NaN/非法 token。
+- [第三方原包检查](results/20261014-original/decision.txt)：原EXE与CUDA13 DLL经保留归档核对，
+  2次冷启动、10请求、约10分30秒。95K冷首问推理从第214字符不同，最终正文一致；
+  未做能力评分，也没有证明纯净上游或跨请求状态是原因。
+- [Swift模型检查](results/20261014-swift/decision.txt)：原q5load加载另一份Swift模型，
+  2次冷启动、10/10请求完成，约9分29秒。99-token短请求及三类95K请求出现分叉；
+  Coder390特有权重包不是该现象的必要条件。没有同步Coder390对照，不能称模型权重单因素实验。
 
-## 验证入口
+上述实验均已关闭，无自动重试、继续遍历版本或模型的计划。保持 q5load 和默认参数不变。
+源码回退候选 `842ea42` 仅在本机独立导出；测试使用历史 EXE，未证明导出目录可逐位重建该 EXE。
 
-所有 GPU 测试顺序运行，不要并行争抢显卡。测试使用 3683/3684 端口；端口已占用就报错，
-只清理自己创建的服务。测试结果写入被 Git 忽略的 `artifacts` 或显式输出目录。
-先完成构建脚本的 `test`，再做模型功能回归：
+## 源码、工具与本地归档
 
-```powershell
-python tools/sm75/validate.py candidate-text --engine D:/candidate/ninfer-serve.exe --model D:/models/model.ninfer --device-profile-path sm75/device-profiles.json --long
-python tools/sm75/validate.py candidate-vision --engine D:/candidate/ninfer-serve.exe --model D:/models/model.ninfer --device-profile-path sm75/device-profiles.json --long --vision
-```
+`origin` 为 Ranko-sama/ninfer-fusion-kvmem，`upstream` 为 1314521gjy/ninfer-fusion-kvmem。
+`main` 保持上游历史，`sm75` 保存本机适配。本机源码在 `upgrade-staging/fusion-sm75`，
+现有构建树为 `upgrade-staging/build-sm75`；不要删除或重新配置已有构建树。
 
-仅需快速检查时省略 `--long`；仍验证算术、工具调用和取消重试。
-`--ring` 是已知有失败历史的小池诊断，不能作为默认配置。
+| 工具 | 用途 |
+| --- | --- |
+| [build.ps1](../tools/sm75/build.ps1) | 检查依赖、显式构建和单元测试 |
+| [serve.ps1](../tools/sm75/serve.ps1) | 展示或启动显式指定的引擎，默认配置不变 |
+| [validate.py](../tools/sm75/validate.py) | 文本、视觉、工具、取消恢复与长上下文回归 |
+| [quality.py](../tools/sm75/quality.py) | 固定能力题、逐例评分及无需GPU的 `--self-test` |
+| [compare-configs.py](../tools/sm75/compare-configs.py) | 显式配置对照及无需GPU的 `--self-test`；不是当前运行计划 |
+| [performance.py](../tools/sm75/performance.py) / [report-performance.py](../tools/sm75/report-performance.py) | 正确性门槛通过后使用的性能工具 |
+| [check-upstream.py](../tools/sm75/check-upstream.py) | 只读检查上游，不自动合并或发布 |
 
-质量小测（约几分钟，第一次克隆可以先用 `--self-test` 检查题库，无须 GPU）：
+[rollback.py](../tools/sm75/rollback.py)、[replay-original.py](../tools/sm75/replay-original.py) 和
+[replay-swift.py](../tools/sm75/replay-swift.py) 是已关闭实验的原脚本，不是可直接在任意克隆中重跑的通用入口。
+它们依赖本机 `upgrade-staging/fusion-sm75` 目录层级、外置发布包、模型、历史输入与冻结清单；
+保留原脚本便于审计，不要为重新运行而删除已有计划或重置计数。所有GPU实验串行，只终止自有进程。
 
-```powershell
-python tools/sm75/quality.py --self-test
-python tools/sm75/quality.py --model D:/models/model.ninfer --baseline-exe D:/stable/ninfer-serve.exe --candidate-exe D:/candidate/ninfer-serve.exe --baseline-profile D:/stable/device-profiles.json --candidate-profile sm75/device-profiles.json --output artifacts/quality-candidate
-```
-
-代码在受限命名空间和有超时的子进程中执行；这不是操作系统安全沙箱，仅用于本地可信测试。
-对输出截断、格式错误和判分器不支持的代码，应查看原始结果，不能只读总分。
-
-正式性能对照使用同一模型、固定请求、独立重启、每版三轮和原来的 95K 夹具：
-
-```powershell
-python tools/sm75/performance.py perf-candidate --old-executable D:/stable/ninfer-serve.exe --new-executable D:/candidate/ninfer-serve.exe --model D:/models/model.ninfer --old-profile D:/stable/device-profiles.json --new-profile sm75/device-profiles.json
-python tools/sm75/report-performance.py artifacts/perf-candidate
-```
-
-性能输出达到固定长度不等于完成代码任务；质量小测另行判分。`old` 和 `new` 是对照标签，
-后续升级用当前稳定包作为 `old`，不要永远只与最早的 UP 版比较。
-复现历史对照需要自行保留旧 UP EXE 和对应 profile；本 Fork 没有发布其二进制或冒充其源码。
-
-## 跟进上游
-
-手动检查，不自动合并或自动部署：
-
-```powershell
-python tools/sm75/check-upstream.py
-git fetch upstream
-git log --oneline main..upstream/main
-```
-
-有新提交时，先确保工作区干净，再建立升级候选：
-
-```powershell
-git switch main
-git merge --ff-only upstream/main
-git push origin main
-git switch sm75
-git switch -c update/2026xxxx
-git merge upstream/main
-```
-
-有冲突时根据新上游语义解决，不一概选择 ours/theirs。上游已接纳的兼容修改应该删除本地重复实现。
-合并后检查相关数值契约、重新构建、校准并运行上面的验证。更新 `sm75/baseline.json` 的
-上游提交、候选 EXE/profile 哈希和对应结果，提交并推送候选分支供审查。
-只有验证通过后才将候选合入 `sm75`、打新标签并切换日常启动器。
-已公开的 `sm75` 使用合并更新，不强制推送或改写历史。
-
-Git 仓库只存源码、脚本、固定公开夹具和精简结果。模型、大型日志、CUDA/DLL、编译目录、
-本机凭据和完整私有配置不提交。需要分发运行包时使用 Releases，并附相应许可证、构建来源与验证范围。
+Git内保存精简结论与关键故障摘录；模型、EXE/DLL、完整SSE、构建缓存和约9.34GiB历史归档保留本机。
+历史记录中的绝对路径、相对证据目录及旧“未提交”表述均描述当时状态，不是当前仓库的下载路径或新运行指令。
+已归档103个旧实验条目、18组报告，保留恢复映射和嵌套junction目标，没有删除失败证据。
+当前源码同步不代表根因修复、技术债清偿或一次新的能力验收。

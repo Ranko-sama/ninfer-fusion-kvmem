@@ -1,0 +1,83 @@
+第三方原始 SM75 包直接复现检查（2026-10-14，已结束）
+
+结论
+在我们适配之前保留的第三方原始发布包上，已复现同参数、同种子下的可见输出分叉。
+两次冷启动中，95K 首问、追问、长生成的推理文本都不同；95K 首问和追问的最终
+正文相同。没有使用能力题成绩代替重复性验证，也不把推理文本分叉直接称为降智。
+10 个请求均正常结束（stop 或达到请求自身 length 上限），未观察到非法 token。
+原 EXE 无内部张量捕获，本轮 NaN 状态是“未观测”，不是“已排除”。
+
+版本来源
+已读取对话 codex://threads/01a11cba-f2bf-7362-b42b-c810272046f1
+（修复 start-2080ti.bat 启动失败），定位到 杭古同学 的 release-2080ti.7z。
+使用 I:\release-2080ti.7z 与工作区根目录保留的 EXE/DLL；10 个运行文件全部
+逐字节哈希核对归档成员一致。没有使用我们的 842ea42 适配版本，也没有重新编译。
+启动日志版本：engine-v0.11.0-kvmem-20261003-3-gb8b0aab-dirty
+EXE SHA256：ec0198e2b55c1ac086566c44f5c7de2fe5bde1f2db696bf132519a07c8420744
+归档 SHA256：a36bb405ba7d8a8ef7dd5930cea26713d74aaee6992a234c6d950c75a18924a3
+两次实际加载的 cublas64_13.dll / cublasLt64_13.dll 都来自原包根目录。
+这里的“原始”指保留的第三方发行包；它自身含 dirty 适配，不能当作纯净上游源码。
+
+实验方法
+两次独立服务进程，顺序相同，使用原始请求文件的相同字节。固定请求序列来自
+archive/20261014-before-rollback/benchmarks/decode-next-20261013/performance/04-old，
+即历史非法 token 故障所在序列：warmup、short-decode、long-first、long-followup、
+long-decode。原种子、采样参数、每请求输出上限均保留，没有人工改写历史答案。
+两次使用独立 LOCALAPPDATA 运行缓存，清除继承的 NINFER_*，显式设置原冻结 profile
+与 NINFER_PREFILL_ALIGN=0。当前 q5 profile 的 60 个 routed keys 在启动日志确认载入。
+实际 engine 与 sampling_defaults 相等，五组实际 request 日志也全部相等。
+
+默认配置仍为当前 q5 冻结配置：同一模型，RK8V4、FP16 GDN、MTP4、chunk384、
+上下文/KV 102400、并发1、host KV0、device state0、shared prefix0、ngram0、
+CUDA Graph allowance128MiB，temperature1、top_p.95、top_k20、xhigh、默认输出94208。
+本轮复用的历史请求显式输出上限为64/2048/4096/4096/2048，不改变服务默认上限。
+这验证的是原包在当前冻结配置下的表现，不是第三方旧 BAT 自带默认配置的重演。
+模型17.8GB文件的大小和mtime与既有SHA记录一致，本轮没有再次全文件重算模型SHA。
+
+直接观察（字符位置从1开始，比较去除SSE封装后的文本）
+请求             seed   prompt/cache       推理文本                  最终正文
+warmup           42     28/0               均为空                    相同：42
+short-decode     175    99/0               8141字符完全相同          均为空，达到2048上限
+long-first       173    95000/0            第214字符开始不同         48字符相同
+long-followup    174    95078/94995         第20字符开始不同          51字符相同
+long-decode      175    95168/95073         第9字符开始不同           均为空，达到2048上限
+
+long-first 两次推理长度为1476/1347字符，completion tokens为443/418；
+long-followup 为394/674字符，completion tokens为155/232；
+long-decode 为9242/9597字符，两次completion tokens均为2048。
+原始 SSE、独立 content/reasoning SHA、实际请求、usage、启动配置与DLL路径均保留。
+short/long-decode 没有最终正文是请求自身输出上限耗尽，不评分为能力失败或通过。
+
+因果边界
+1. 我们的适配、后续性能优化和新增诊断插桩，不是这次可见输出分叉的必要条件。
+   因而整体回退到这个第三方原包，也不能满足当前“同种子输出一致”的验收条件。
+2. 最早出现分叉的 long-first 两次 cached_tokens 都为0；此前warmup及short-decode
+   的可见输出完全相同。分叉不需要先发生不同的可见对话，但long-first并非冷启动
+   的第一个请求，因此本轮没有排除跨请求内部状态，也没有捕获其首次数值差异。
+3. 原包没有内部张量或实际token-ID完整捕获；不能证明它与q5已捕获的有限张量分叉
+   或历史NaN有相同根因，不能用最终正文一致来替代内部数值正确性。
+4. 尚未取得原包的第三方SM75改动源码，且它使用CUDA13，q5使用CUDA12。这里是原包
+   整体的复现证据，无法继续区分纯上游、第三方适配、CUDA环境或模型的责任。
+5. 非法token在这2轮内未复现，是有上限的阴性结果；不等于历史问题消失或被修复。
+
+投入与停止
+预定最多2次冷启动、10个请求、模型实验20分钟；启动120秒、每请求420秒上限，
+出现错误/超时/身份不符即停止整个实验，无重试、无编译、无插桩、无性能专项测试。
+实际2次冷启动、10/10个请求完成，约630.31秒（10分30秒）；两个自有服务均退出，
+3683/3684端口已释放。plan.json已关闭且禁止追加运行，不做第三轮碰运气。
+本轮没有修复根因，也没有能力验收结论。保留发布阻断，停止继续向更早包盲目回退。
+若后续另立任务，应只围绕已有具体证据设立新的有界判定；不得自动续跑旧计划。
+
+收尾
+q5默认包34/34文件、原包10/10运行文件与冻结输入均核对未变；模型大小/mtime、
+默认启动器、配置和profile未改。默认入口仍指向q5load，没有部署、提交或推送。
+本轮仅新增自包含重放工具、原始结果和本报告，并更新维护入口。
+
+证据（本目录内）
+plan.json：来源、EXE/DLL/归档/请求/启动器哈希、原样命令、预定上限与关闭状态。
+summary.json：分叉位置与片段、完成计数、错误列表、冻结检查、观测限制。
+closeout.json：请求usage、相同配置、实际CUDA模块路径、服务退出与端口释放检查。
+requests/*.request.json：五份原始请求字节。
+original-{1,2}/：manifest、环境、runtime-check、loaded-modules、requests.jsonl、
+                stdout/stderr、五份原始SSE及五份解析result.json。
+工具：upgrade-staging/fusion-sm75/tools/sm75/replay-original.py（相对工作区根目录）。

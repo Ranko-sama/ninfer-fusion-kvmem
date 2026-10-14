@@ -1,0 +1,163 @@
+{
+  "counts": {
+    "cold_starts": 2,
+    "requests": 10
+  },
+  "completed_requests": 10,
+  "elapsed_model_seconds": 630.3100855350494,
+  "comparisons": {
+    "warmup": {
+      "both_complete": true,
+      "channels": {
+        "content": {
+          "equal": true,
+          "lengths": [
+            2,
+            2
+          ],
+          "common_prefix_chars": 2,
+          "first_difference_1based": null,
+          "excerpts": []
+        },
+        "reasoning": {
+          "equal": true,
+          "lengths": [
+            0,
+            0
+          ],
+          "common_prefix_chars": 0,
+          "first_difference_1based": null,
+          "excerpts": []
+        }
+      },
+      "actual_requests_equal": true
+    },
+    "short-decode": {
+      "both_complete": true,
+      "channels": {
+        "content": {
+          "equal": true,
+          "lengths": [
+            0,
+            0
+          ],
+          "common_prefix_chars": 0,
+          "first_difference_1based": null,
+          "excerpts": []
+        },
+        "reasoning": {
+          "equal": true,
+          "lengths": [
+            8141,
+            8141
+          ],
+          "common_prefix_chars": 8141,
+          "first_difference_1based": null,
+          "excerpts": []
+        }
+      },
+      "actual_requests_equal": true
+    },
+    "long-first": {
+      "both_complete": true,
+      "channels": {
+        "content": {
+          "equal": true,
+          "lengths": [
+            48,
+            48
+          ],
+          "common_prefix_chars": 48,
+          "first_difference_1based": null,
+          "excerpts": []
+        },
+        "reasoning": {
+          "equal": false,
+          "lengths": [
+            1476,
+            1347
+          ],
+          "common_prefix_chars": 213,
+          "first_difference_1based": 214,
+          "excerpts": [
+            "ge=hotfix, one per line. Do not guess.\n\nWe need scan reference for OFFICIAL_RELEASE_MANIFEST lines. They appear embedded in docs. Need find packages dahlia, elm",
+            "ge=hotfix, one per line. Do not guess.\n\nNeed scan reference for OFFICIAL_RELEASE_MANIFEST lines. I see several:\n- In serving.md Load section: \"OFFICIAL_RELEASE_"
+          ]
+        }
+      },
+      "actual_requests_equal": true
+    },
+    "long-followup": {
+      "both_complete": true,
+      "channels": {
+        "content": {
+          "equal": true,
+          "lengths": [
+            51,
+            51
+          ],
+          "common_prefix_chars": 51,
+          "first_difference_1based": null,
+          "excerpts": []
+        },
+        "reasoning": {
+          "equal": false,
+          "lengths": [
+            394,
+            674
+          ],
+          "common_prefix_chars": 19,
+          "first_difference_1based": 20,
+          "excerpts": [
+            "The user wants the hotfix IDs for aurora, birch, and cedar from the reference data. Looking at the repository_reference:\n\n1. aurora: \"OFFIC",
+            "The user wants the verified hotfix IDs for aurora, birch, and cedar from the OFFICIAL_RELEASE_MANIFEST records in the reference data.\n\nLet "
+          ]
+        }
+      },
+      "actual_requests_equal": true
+    },
+    "long-decode": {
+      "both_complete": true,
+      "channels": {
+        "content": {
+          "equal": true,
+          "lengths": [
+            0,
+            0
+          ],
+          "common_prefix_chars": 0,
+          "first_difference_1based": null,
+          "excerpts": []
+        },
+        "reasoning": {
+          "equal": false,
+          "lengths": [
+            9242,
+            9597
+          ],
+          "common_prefix_chars": 8,
+          "first_difference_1based": 9,
+          "excerpts": [
+            "We need to write a response to the user's request. The user asks: \"Implement a TypeScript generic retry helper with exponential ",
+            "We need answer user: \"Implement a TypeScript generic retry helper with exponential backoff, cancellation via AbortSignal, a maxi"
+          ]
+        }
+      },
+      "actual_requests_equal": true
+    }
+  },
+  "runtime_errors": [],
+  "illegal_token_observed": false,
+  "nan_tensor_status": "UNOBSERVED: original binary has no tensor capture",
+  "default_package_unchanged": true,
+  "original_runtime_unchanged": true,
+  "frozen_inputs_unchanged": true,
+  "ability_grading": false,
+  "performance_claim": false,
+  "limitations": [
+    "Original CUDA 13 DLLs differ from q5 CUDA 12 DLLs; whole-package attribution only.",
+    "Third-party adaptation source/patches unavailable; a positive result is not proof of an unmodified upstream defect.",
+    "Current unchanged q5 route profile is explicitly supplied; this is not replay of the author BAT defaults.",
+    "Visible text equality is weaker than actual token-ID or internal tensor equality."
+  ]
+}
