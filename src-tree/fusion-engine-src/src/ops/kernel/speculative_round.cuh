@@ -402,11 +402,12 @@ __launch_bounds__(kSamplerBlock) __global__ void speculative_accept_greedy_draft
             while (a < extent && row_targets[a] == row_drafts[a]) { ++a; }
             const int t_star = row_targets[a];
 
-            const std::int64_t t_star_base = static_cast<std::int64_t>(a) * physical_rows;
             speculative_store_accept_result<true>(
                 row_drafts, k, row, a, t_star, lengths, anchors, row_tokens, licensed_counts,
                 accepted, &cfg,
-                sampling_selected_logit_is_finite(row_logits, t_star_base, t_star));
+                speculative_commit_span_is_finite(
+                    row_logits, a, physical_rows,
+                    [&](std::int32_t column) { return row_targets[column]; }));
         }
         return;
     }

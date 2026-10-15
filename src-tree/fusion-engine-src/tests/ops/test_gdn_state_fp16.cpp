@@ -3,6 +3,7 @@
 // once per call. Reports the output error per step (relative L2 over all heads) and fails if it
 // exceeds 2e-2 -- five bf16 rounding steps -- anywhere, or if it trends upward (the last quarter's
 // mean above twice the second quarter's).
+// Non-finite outputs and error statistics are always rejected.
 //
 // Inputs mimic the 27B's layer statistics loosely: 16 query/key heads and 48 value heads,
 // normalized q/k, per-head decays from short (alpha 0.9) to near-lossless memory (alpha 0.9999),
@@ -22,7 +23,11 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <random>
+#include <span>
+#include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -37,9 +42,131 @@ constexpr int kHv    = 48;
 constexpr int kDim   = 128;
 constexpr int kSteps = 4096;
 
+double relative_output_error(std::span<const std::uint16_t> reference,
+                             std::span<const std::uint16_t> actual, int call) {
+    if (reference.empty() || reference.size() != actual.size()) {
+        throw std::invalid_argument("invalid output comparison shape");
+    }
+    double num = 0.0, den = 0.0;
+    for (std::size_t i = 0; i < reference.size(); ++i) {
+        const double a = oracle::bf16_to_f32(reference[i]);
+        const double b = oracle::bf16_to_f32(actual[i]);
+        if (!std::isfinite(a) || !std::isfinite(b)) {
+            throw std::runtime_error("non-finite " +
+                std::string(!std::isfinite(a) ? "FP32-state" : "FP16-state") +
+                " output at call " + std::to_string(call) + " element " + std::to_string(i));
+        }
+        num += (a - b) * (a - b);
+        den += a * a;
+    }
+    const double error = std::sqrt(num / std::max(den, 1e-30));
+    if (!std::isfinite(error)) {
+        throw std::runtime_error("non-finite relative output error at call " +
+                                 std::to_string(call));
+    }
+    return error;
+}
+
+struct ErrorSummary {
+    double worst;
+    double q1, q2, q3, q4;
+    bool passed() const { return worst <= 2e-2 && q4 <= 2.0 * q2; }
+};
+
+ErrorSummary summarize_errors(std::span<const double> errors) {
+    if (errors.size() < 4) { throw std::invalid_argument("four error quarters are required"); }
+    double worst = 0.0;
+    for (std::size_t call = 0; call < errors.size(); ++call) {
+        if (!std::isfinite(errors[call])) {
+            throw std::runtime_error("non-finite error history at call " + std::to_string(call));
+        }
+        worst = std::max(worst, errors[call]);
+    }
+    const auto mean = [&](std::size_t begin, std::size_t end) {
+        double sum = 0.0;
+        for (std::size_t i = begin; i < end; ++i) { sum += errors[i]; }
+        return sum / (end - begin);
+    };
+    const std::size_t calls = errors.size();
+    const ErrorSummary summary{worst, mean(0, calls / 4), mean(calls / 4, calls / 2),
+                               mean(calls / 2, 3 * calls / 4), mean(3 * calls / 4, calls)};
+    if (!std::isfinite(summary.worst) || !std::isfinite(summary.q1) ||
+        !std::isfinite(summary.q2) || !std::isfinite(summary.q3) || !std::isfinite(summary.q4)) {
+        throw std::runtime_error("non-finite error summary");
+    }
+    return summary;
+}
+
+int finite_gate_regression() {
+    int failures = 0, cases = 0;
+    const auto expect = [&](const std::string& name, bool actual, bool expected) {
+        ++cases;
+        if (actual != expected) {
+            std::cerr << "FAIL finite gate " << name << ": expected " << expected
+                      << ", got " << actual << '\n';
+            ++failures;
+        }
+    };
+    const auto accepts = [](std::span<const double> errors) {
+        try { return summarize_errors(errors).passed(); }
+        catch (const std::exception&) { return false; }
+    };
+    const std::vector<double> clean(16, 0.001);
+    expect("finite errors", accepts(clean), true);
+    for (const double bad : {std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::infinity(),
+                             -std::numeric_limits<double>::infinity()}) {
+        for (int quarter = 0; quarter < 4; ++quarter) {
+            auto errors = clean;
+            errors[quarter * 4] = bad; // The remaining calls stay finite.
+            expect("non-finite quarter " + std::to_string(quarter + 1) + " value " +
+                       std::to_string(bad), accepts(errors), false);
+        }
+    }
+    expect("empty history", accepts({}), false);
+    expect("too few quarters", accepts(std::vector<double>(3, 0.001)), false);
+    expect("maximum error boundary", accepts(std::vector<double>(16, 0.02)), true);
+    expect("maximum error exceeded", accepts(std::vector<double>(16, 0.021)), false);
+    auto trend = clean;
+    std::fill(trend.begin() + 12, trend.end(), 0.002);
+    expect("trend boundary", accepts(trend), true);
+    std::fill(trend.begin() + 12, trend.end(), 0.0021);
+    expect("trend exceeded", accepts(trend), false);
+
+    const auto output_accepts = [&](const std::vector<std::uint16_t>& reference,
+                                    const std::vector<std::uint16_t>& actual) {
+        try {
+            // Exercise the exact comparison and history gate used by the GPU test.
+            return accepts(std::vector<double>(16, relative_output_error(reference, actual, 0)));
+        } catch (const std::exception&) { return false; }
+    };
+    expect("identical outputs", output_accepts({0x3f80, 0xbf80}, {0x3f80, 0xbf80}), true);
+    expect("zero outputs", output_accepts({0, 0}, {0, 0}), true);
+    expect("small finite error", output_accepts({0x3f80}, {0x3f81}), true);
+    expect("zero reference floor", output_accepts({0}, {0x3f80}), false);
+    // BF16 encodings are exact fixtures, independent of the comparison implementation.
+    for (const std::uint16_t bad : {std::uint16_t{0x7fc0}, std::uint16_t{0x7f80},
+                                    std::uint16_t{0xff80}}) {
+        for (const bool reference_bad : {false, true}) {
+            const std::vector<std::uint16_t> reference{reference_bad ? bad : std::uint16_t{0x3f80}};
+            const std::vector<std::uint16_t> actual{reference_bad ? std::uint16_t{0x3f80} : bad};
+            expect(std::string(reference_bad ? "FP32" : "FP16") + " chain non-finite " +
+                       std::to_string(bad), output_accepts(reference, actual), false);
+        }
+    }
+    std::cout << (failures == 0 ? "PASS" : "FAIL") << " FP16 finite gate: " << cases
+              << " cases, " << failures << " failures\n";
+    return failures;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
+    const int gate_failures = finite_gate_regression();
+    if (argc == 2 && std::string_view(argv[1]) == "--finite-gate-only") {
+        return gate_failures == 0 ? 0 : 1;
+    }
+    if (gate_failures != 0) { return 1; }
     const int width = argc > 1 ? std::atoi(argv[1]) : 1; // tokens per call: 1 = decode, 4 = MTP3
     if (argc > 2 && std::string_view(argv[2]) == "--two-stage") {
         // Prefill widths through the two-stage kernels, which stage an FP16 state through FP32.
@@ -91,7 +218,6 @@ int main(int argc, char** argv) {
         std::vector<std::uint16_t> h32(static_cast<std::size_t>(kDim) * kHv * width);
         std::vector<std::uint16_t> h16(h32.size());
         std::vector<double> err(kSteps / width);
-        double worst = 0.0;
         for (int call = 0; call < kSteps / width; ++call) {
             const std::size_t t0 = static_cast<std::size_t>(call) * width;
             const auto slice     = [&](void* base, std::size_t elem, std::size_t per_token,
@@ -113,28 +239,13 @@ int main(int argc, char** argv) {
             ninfer::test::cuda_check(cudaDeviceSynchronize(), "gated_delta_net");
             o32.copy_to_host(h32.data(), h32.size() * 2);
             o16.copy_to_host(h16.data(), h16.size() * 2);
-            double num = 0.0, den = 0.0;
-            for (std::size_t i = 0; i < h32.size(); ++i) {
-                const double a = oracle::bf16_to_f32(h32[i]);
-                const double b = oracle::bf16_to_f32(h16[i]);
-                num += (a - b) * (a - b);
-                den += a * a;
-            }
-            err[call] = std::sqrt(num / std::max(den, 1e-30));
-            worst     = std::max(worst, err[call]);
+            err[call] = relative_output_error(h32, h16, call);
         }
-        const auto mean = [&](int begin, int end) {
-            double sum = 0.0;
-            for (int i = begin; i < end; ++i) { sum += err[i]; }
-            return sum / (end - begin);
-        };
-        const int calls = kSteps / width;
-        const double q1 = mean(0, calls / 4), q2 = mean(calls / 4, calls / 2),
-                     q4 = mean(3 * calls / 4, calls);
-        std::cout << "width " << width << ": relative output error, mean by quarter " << q1 << ' '
-                  << q2 << ' ' << mean(calls / 2, 3 * calls / 4) << ' ' << q4 << ", worst "
-                  << worst << '\n';
-        const bool ok = worst <= 2e-2 && q4 <= 2.0 * q2;
+        const auto summary = summarize_errors(err);
+        std::cout << "width " << width << ": relative output error, mean by quarter "
+                  << summary.q1 << ' ' << summary.q2 << ' ' << summary.q3 << ' ' << summary.q4
+                  << ", worst " << summary.worst << '\n';
+        const bool ok = summary.passed();
         std::cout << (ok ? "OK" : "FAIL") << " FP16 GDN state tracks FP32 over " << kSteps
                   << " tokens\n";
         return ok ? 0 : 1;

@@ -1167,7 +1167,8 @@ int execute_accept_case(const std::string& label, const std::vector<std::int32_t
                         const std::vector<std::int32_t>& drafts, std::int32_t initial_length,
                         int token_domain, ops::SamplingConfig config,
                         const std::vector<std::int32_t>& initial_token_counts,
-                        const AcceptExpected& expected) {
+                         const AcceptExpected& expected_result, int current_extent = -1,
+                         bool finite_graph_replay = false) {
     const int k              = static_cast<int>(drafts.size());
     DeviceBuffer d_targets   = to_device(target_tokens);
     DeviceBuffer d_logits    = to_device(logits_bits);
@@ -1182,7 +1183,8 @@ int execute_accept_case(const std::string& label, const std::vector<std::int32_t
     GuardedDeviceBuffer d_sampled(static_cast<std::size_t>(k + 1) * sizeof(std::int32_t));
     GuardedDeviceBuffer d_num(sizeof(std::int32_t));
     GuardedDeviceBuffer d_accepted(sizeof(std::int32_t));
-    DeviceBuffer d_extent = to_device<std::int32_t>({k});
+    const int live_extent = current_extent < 0 ? k : current_extent;
+    DeviceBuffer d_extent = to_device<std::int32_t>({live_extent});
     initialize(d_length, std::vector<std::int32_t>{initial_length});
     initialize(d_token, std::vector<std::int32_t>{-1234567});
     d_sampled.fill(0x9d);
@@ -1201,56 +1203,178 @@ int execute_accept_case(const std::string& label, const std::vector<std::int32_t
     const std::size_t workspace_bytes =
         ops::speculative_accept_greedy_drafts_workspace_capacity_bytes(token_domain, k, k, 1, 1);
     WorkspaceArena workspace(std::max<std::size_t>(256, workspace_bytes));
-    ops::speculative_accept_greedy_drafts(
-        targets, logits, draft_tensor, extent, length, token, sampled, num_sampled, accepted,
-        token_domain, static_cast<const ops::SamplingConfig*>(d_config.p), workspace, nullptr);
-    cuda_synchronize();
+    const auto launch = [&](cudaStream_t stream) {
+        ops::speculative_accept_greedy_drafts(
+            targets, logits, draft_tensor, extent, length, token, sampled, num_sampled, accepted,
+            token_domain, static_cast<const ops::SamplingConfig*>(d_config.p), workspace, stream);
+    };
 
-    int failures = verify_exact((label + " sampled").c_str(), read<std::int32_t>(d_sampled, k + 1),
-                                expected.sampled);
-    failures += verify_exact((label + " num sampled").c_str(), read<std::int32_t>(d_num, 1),
-                             {expected.num_sampled});
-    failures += verify_exact((label + " accepted").c_str(), read<std::int32_t>(d_accepted, 1),
-                             {expected.accepted});
-    failures += verify_exact((label + " length").c_str(), read<std::int32_t>(d_length, 1),
-                             {expected.length});
-    failures +=
-        verify_exact((label + " token").c_str(), read<std::int32_t>(d_token, 1), {expected.token});
+    const auto verify = [&](const std::string& label, const AcceptExpected& expected,
+                            const std::vector<std::uint16_t>& expected_logits) {
+        int failures = verify_exact((label + " sampled").c_str(), read<std::int32_t>(d_sampled, k + 1),
+                                    expected.sampled);
+        failures += verify_exact((label + " num sampled").c_str(), read<std::int32_t>(d_num, 1),
+                                 {expected.num_sampled});
+        failures += verify_exact((label + " accepted").c_str(), read<std::int32_t>(d_accepted, 1),
+                                 {expected.accepted});
+        failures += verify_exact((label + " length").c_str(), read<std::int32_t>(d_length, 1),
+                                 {expected.length});
+        failures +=
+            verify_exact((label + " token").c_str(), read<std::int32_t>(d_token, 1), {expected.token});
 
-    failures +=
-        verify_exact((label + " target tokens unchanged").c_str(),
-                     from_device<std::int32_t>(d_targets, target_tokens.size()), target_tokens);
-    failures += verify_exact((label + " logits unchanged").c_str(),
-                             from_device<std::uint16_t>(d_logits, logits_bits.size()), logits_bits);
-    failures += verify_exact((label + " drafts unchanged").c_str(),
-                             from_device<std::int32_t>(d_drafts, drafts.size()), drafts);
-    failures += verify_exact((label + " config unchanged").c_str(),
-                             from_device<std::uint8_t>(d_config, sizeof(ops::SamplingConfig)),
-                             config_before);
+        failures +=
+            verify_exact((label + " target tokens unchanged").c_str(),
+                         from_device<std::int32_t>(d_targets, target_tokens.size()), target_tokens);
+        failures += verify_exact((label + " logits unchanged").c_str(),
+                                  from_device<std::uint16_t>(d_logits, expected_logits.size()),
+                                  expected_logits);
+        failures += verify_exact((label + " drafts unchanged").c_str(),
+                                 from_device<std::int32_t>(d_drafts, drafts.size()), drafts);
+        failures += verify_exact((label + " config unchanged").c_str(),
+                                 from_device<std::uint8_t>(d_config, sizeof(ops::SamplingConfig)),
+                                 config_before);
+        failures += verify_exact((label + " extent unchanged").c_str(),
+                                  from_device<std::int32_t>(d_extent, 1), {live_extent});
 
-    auto expected_counts = initial_token_counts;
-    // The non-finite sentinel branch returns before speculative_store_accept_result's
-    // UpdateTokenCounts block, so counts must stay untouched -- indexing token_counts by
-    // kSamplerNonFiniteToken (-1) would be out of bounds.
-    if (expected.token != ops::kSamplerNonFiniteToken) {
-        for (int i = 0; i < expected.num_sampled; ++i) {
-            ++expected_counts[static_cast<std::size_t>(
-                expected.sampled[static_cast<std::size_t>(i)])];
+        auto expected_counts = initial_token_counts;
+        // The non-finite sentinel branch returns before speculative_store_accept_result's
+        // UpdateTokenCounts block, so counts must stay untouched -- indexing token_counts by
+        // kSamplerNonFiniteToken (-1) would be out of bounds.
+        if (expected.token != ops::kSamplerNonFiniteToken) {
+            for (int i = 0; i < expected.num_sampled; ++i) {
+                ++expected_counts[static_cast<std::size_t>(
+                    expected.sampled[static_cast<std::size_t>(i)])];
+            }
         }
-    }
-    failures +=
-        verify_exact((label + " token counts").c_str(),
-                     from_device<std::int32_t>(d_counts, expected_counts.size()), expected_counts);
+        failures +=
+            verify_exact((label + " token counts").c_str(),
+                         from_device<std::int32_t>(d_counts, expected_counts.size()), expected_counts);
 
-    failures += d_length.verify_guards((label + " length guards").c_str());
-    failures += d_token.verify_guards((label + " token guards").c_str());
-    failures += d_sampled.verify_guards((label + " sampled guards").c_str());
-    failures += d_num.verify_guards((label + " num guards").c_str());
-    failures += d_accepted.verify_guards((label + " accepted guards").c_str());
-    if (workspace.used() != 0 || workspace.peak_used() != workspace_bytes) {
-        std::cerr << label << ": workspace query/execution high-water mismatch\n";
-        ++failures;
+        failures += d_length.verify_guards((label + " length guards").c_str());
+        failures += d_token.verify_guards((label + " token guards").c_str());
+        failures += d_sampled.verify_guards((label + " sampled guards").c_str());
+        failures += d_num.verify_guards((label + " num guards").c_str());
+        failures += d_accepted.verify_guards((label + " accepted guards").c_str());
+        if (workspace.used() != 0 || workspace.peak_used() != workspace_bytes) {
+            std::cerr << label << ": workspace query/execution high-water mismatch\n";
+            ++failures;
+        }
+        return failures;
+    };
+    if (!finite_graph_replay) {
+        launch(nullptr);
+        cuda_synchronize();
+        return verify(label, expected_result, logits_bits);
     }
+
+    // Keep all addresses fixed across clean -> poisoned prefix -> clean replay. Input updates
+    // and state resets are ordered before the graph on the same stream, outside capture.
+    DeviceContext context;
+    DecodeGraphDefinition definition;
+    DecodeGraphExecutable graph;
+    definition.capture(context.stream, [&] { launch(context.stream); });
+    graph.instantiate(definition);
+    int failures = 0;
+    for (int phase = 0; phase < 3; ++phase) {
+        auto phase_logits = logits_bits;
+        if (phase == 1) {
+            phase_logits[static_cast<std::size_t>(target_tokens[0])] = f32_to_bf16(
+                std::numeric_limits<float>::quiet_NaN());
+        }
+        const std::int32_t unset = -13;
+        const auto copy = [&](void* destination, const void* source, std::size_t bytes) {
+            CUDA_CHECK(cudaMemcpyAsync(destination, source, bytes, cudaMemcpyHostToDevice,
+                                       context.stream));
+        };
+        copy(d_logits.p, phase_logits.data(), d_logits.bytes);
+        copy(d_counts.p, initial_token_counts.data(), d_counts.bytes);
+        copy(d_length.data(), &initial_length, sizeof(initial_length));
+        for (void* destination : {d_token.data(), d_num.data(), d_accepted.data()}) {
+            copy(destination, &unset, sizeof(unset));
+        }
+        CUDA_CHECK(cudaMemsetAsync(d_sampled.data(), 0x9d, d_sampled.bytes(), context.stream));
+        graph.launch(context.stream);
+        context.synchronize();
+        failures += verify(label + " graph phase " + std::to_string(phase),
+                            phase == 1 ? non_finite_accept_oracle(k, initial_length)
+                                       : expected_result,
+                            phase_logits);
+    }
+    return failures;
+}
+
+int finite_span_regression() {
+    constexpr int k = 3;
+    constexpr std::int32_t initial_length = 100;
+    int failures = 0, cases = 0;
+    const auto run = [&](int domain, int accepted_count, int live_extent, int bad_column,
+                          float bad_value, bool whole_column = false, bool padding = false,
+                          bool graph = false) {
+        const int physical_rows = domain + 7;
+        const std::vector<std::int32_t> targets{3, 5, 7, 9};
+        std::vector<std::int32_t> drafts{3, 5, 7};
+        if (accepted_count < live_extent) { ++drafts[accepted_count]; }
+        std::vector<float> logits(static_cast<std::size_t>(physical_rows) * (k + 1), -20.0F);
+        for (int column = 0; column <= k; ++column) {
+            logits[column * physical_rows + targets[column]] = 5.0F;
+        }
+        if (bad_column >= 0) {
+            if (padding) {
+                for (int row = domain; row < physical_rows; ++row) {
+                    logits[bad_column * physical_rows + row] = bad_value;
+                }
+            } else if (whole_column) {
+                std::fill_n(logits.begin() + bad_column * physical_rows, domain, bad_value);
+            } else {
+                logits[bad_column * physical_rows + targets[bad_column]] = bad_value;
+            }
+        }
+        std::vector<std::uint16_t> bits(logits.size());
+        for (std::size_t i = 0; i < logits.size(); ++i) { bits[i] = f32_to_bf16(logits[i]); }
+        ops::SamplingConfig config{};
+        config.temperature = 0.0F;
+        config.presence_penalty = 0.0F;
+        config.frequency_penalty = 0.0F;
+        config.token_mask = nullptr;
+        const bool refuse = !padding && bad_column >= 0 && bad_column <= accepted_count;
+        const auto expected = refuse ? non_finite_accept_oracle(k, initial_length)
+                                     : accept_state_oracle(drafts, accepted_count,
+                                                           targets[accepted_count], initial_length);
+        const std::string label = "finite span domain=" + std::to_string(domain) +
+            " accepted=" + std::to_string(accepted_count) + " extent=" +
+            std::to_string(live_extent) + " bad-column=" + std::to_string(bad_column) +
+            " value=" + std::to_string(bad_value) + (padding ? " padding" : "") +
+            (whole_column ? " whole-column" : "");
+        const int result = execute_accept_case(label, targets, bits, physical_rows, drafts,
+                                               initial_length, domain, config,
+                                               std::vector<std::int32_t>(domain, 2), expected,
+                                               live_extent, graph);
+        ++cases;
+        std::cout << (result == 0 ? "PASS " : "FAIL ") << label << (graph ? " graph" : "") << '\n';
+        failures += result;
+    };
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    for (int domain : {64, 256, 257}) {
+        for (int accepted : {0, 1, 3}) { run(domain, accepted, k, -1, 0.0F); }
+        for (float bad : {nan, std::numeric_limits<float>::infinity(),
+                           -std::numeric_limits<float>::infinity()}) {
+            run(domain, 1, k, 0, bad);
+            run(domain, 2, k, 1, bad);
+            run(domain, 3, k, 2, bad);
+        }
+        run(domain, 2, k, 0, nan, true);
+        run(domain, 0, k, 0, nan);
+        run(domain, 3, k, 3, nan);
+        run(domain, 1, k, 2, nan);       // Uncommitted suffix must not cause refusal.
+        run(domain, 3, k, 0, nan, false, true); // Nor may physical vocabulary padding.
+        run(domain, 0, 0, 1, nan);
+        run(domain, 1, 1, 2, nan);
+        run(domain, 0, 0, 0, nan);
+        run(domain, 1, 1, 0, nan);
+    }
+    run(64, 2, k, -1, 0.0F, false, false, true);
+    std::cout << (failures == 0 ? "PASS" : "FAIL") << " finite span: " << cases
+              << " cases, " << failures << " failed assertions\n";
     return failures;
 }
 
@@ -1881,6 +2005,9 @@ int main(int argc, char** argv) {
         std::cout << "speculative_round: SKIP (CUDA unavailable)\n";
         return 77;
     }
+    if (argc == 2 && std::string_view(argv[1]) == "--finite-span-only") {
+        return finite_span_regression() == 0 ? 0 : 1;
+    }
 
     if (argc == 2 && std::string_view(argv[1]) == "--wide-accept") {
         int failures     = 0;
@@ -1993,7 +2120,8 @@ int main(int argc, char** argv) {
     if (argc > 2 || (argc == 2 && std::string_view(argv[1]) != "--transforms-only")) {
         std::cerr << "usage: ninfer_speculative_round_test "
                      "[--transforms-only|--ngram-only|--onehot-distribution|--mtp-onehot|--mtp-"
-                     "distribution|--ngram-negative-penalties|--wide-accept|--wide-distribution]\n";
+                     "distribution|--ngram-negative-penalties|--wide-accept|--wide-distribution|"
+                     "--finite-span-only]\n";
         return 2;
     }
     int failures = transforms_conformance();
@@ -2001,6 +2129,7 @@ int main(int argc, char** argv) {
         std::cout << (failures == 0 ? "PASS" : "FAIL") << " speculative transforms\n";
         return failures == 0 ? 0 : 1;
     }
+    failures += finite_span_regression();
     const std::size_t k15 =
         ops::speculative_accept_greedy_drafts_workspace_capacity_bytes(257, 15, 15, 1, 1);
     const std::size_t k31 =
