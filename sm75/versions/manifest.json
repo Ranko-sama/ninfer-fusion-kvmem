@@ -1,16 +1,18 @@
 {
-  "version": "sm75-six-20261022",
+  "version": "sm75-fourteen-20261022",
   "original_base_commit": "349ad64f9c766d364161c6dee8a22163471a4435",
   "production_sources": {
     "src-tree/fusion-engine-src/src/models/qwen3_5/program/planning/startup.cpp": "build-sm75-run-20261016/restore-fourteen-20261022/before/src-tree/fusion-engine-src/src/models/qwen3_5/program/planning/startup.cpp",
     "src-tree/fusion-engine-src/src/ops/softmax_attention/dense/causal_cache/prompt_i8.cuh": "build-sm75-run-20261016/restore-fourteen-20261022/before/src-tree/fusion-engine-src/src/ops/softmax_attention/dense/causal_cache/prompt_i8.cuh",
     "src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq-load-tiles.cuh": "build-sm75-run-20261016/restore-fourteen-20261022/before/src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq-load-tiles.cuh",
-    "src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq-vec-dot.cuh": "build-sm75-run-20261016/restore-fourteen-20261022/before/src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq-vec-dot.cuh",
-    "src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq.cuh": "build-sm75-run-20261016/restore-fourteen-20261022/before/src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq.cuh"
+    "src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq-vec-dot.cuh": "build-sm75-run-20261016/overnight-20261021/final-combination/mmq-vec-dot.cuh",
+    "src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq.cuh": "build-sm75-run-20261016/overnight-20261021/final-combination/mmq.cuh"
   },
   "historical_reports": [
-    "build-sm75-run-20261016/overnight-20261020/REPORT.txt",
-    "build-sm75-run-20261016/c10-sixway-integration-20261021/REPORT.txt"
+    "build-sm75-run-20261016/overnight-20261021/REPORT.txt",
+    "build-sm75-run-20261016/finite-q3-quality-20261021/REPORT.txt",
+    "build-sm75-run-20261016/fourteen-only-q3-20261022/REPORT.txt",
+    "build-sm75-run-20261016/restore-fourteen-20261022/REPORT.txt"
   ],
   "publication_validation": {
     "kind": "static source/provenance review only",

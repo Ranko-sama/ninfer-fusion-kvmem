@@ -1,0 +1,14 @@
+原冻结十四项恢复与构建记录（2026-10-22）
+
+采用决定：按用户本次明确授权，恢复并保留原冻结十四项组合。没有追加实现变体或修正。
+本次仅将 mmq.cuh、mmq-vec-dot.cuh 从原六项状态恢复为 overnight-20261021/final-combination 中的原始冻结字节。恢复前快照保留在本目录 before/；原六项其他实现不变。
+
+实际构建：使用 tools/sm75/build.ps1，Release，CMAKE_CUDA_ARCHITECTURES=75，仅构建 ninfer-serve。实际完成 CUDA 对象重编译、静态库和服务程序链接，退出码0。
+产物：D:/AI/ninfer-fusion-kvmem/build-sm75-run-20261016/apps/ninfer-serve.exe
+构建日志：build.log；起止与退出码：build-done.json。编译器在未修改的 common.cuh 报浮点常量转换警告，原样记录，没有为消除警告修改代码。
+
+本次真实请求0次，数值夹具/模型运行0次。没有新增性能或质量验证。
+启动 BAT、sm75/device-profiles.json、相关原六项代码与 test_gguf.cpp 已同恢复前逐字比较，保持不变。默认 BAT 仍指向原 release，本次没有替换发布包、切换日常启动入口、提交或推送。未修改 GPU/驱动/Afterburner。
+
+此前约7%的 prefill 改善仍属于历史真实对照。旧 UNRESOLVED、风险回退记录和所有负例均保留；本次是新的工程采用决定，不追认旧质量验收通过，不宣称一般能力完全等价。
+独立审查：恢复前及源码恢复核验已GO；最终构建审查亦GO，见 final-review.json。任务已完成并停止。

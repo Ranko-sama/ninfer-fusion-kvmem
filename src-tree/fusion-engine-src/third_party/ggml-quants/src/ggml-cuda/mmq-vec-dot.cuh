@@ -265,11 +265,39 @@ static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma(
 #pragma unroll
             for (int n = 0; n < ntx; ++n) {
                 tile_C C;
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+                constexpr bool exact_biased_cast =
+                    (type == GGML_TYPE_IQ3_S || type == GGML_TYPE_IQ4_XS || type == GGML_TYPE_IQ3_XXS) && J == 128 && !fallback &&
+                    ds_layout == MMQ_Q8_1_DS_LAYOUT_D4;
+                if constexpr (exact_biased_cast) {
+                    // A complete signed K32 dot is in [-520192, 524288].
+                    // Keep the bias through both K16 MMAs before recovering the float.
+#pragma unroll
+                    for (int l = 0; l < tile_C::ne; ++l) { C.x[l] = 0x4B400000; }
+                }
+#endif
                 mma(C, A[n][k01/QI8_0], B);
 
 #pragma unroll
                 for (int l = 0; l < tile_C::ne; ++l) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+                    if constexpr (exact_biased_cast) {
+                        if constexpr (type == GGML_TYPE_IQ3_XXS) {
+                            // IQ3_XXS dA has at most 16 significant bits; bias*dA is exact.
+                            // Fused cancellation preserves nonzero results; zero signs may differ.
+                            const float scale = dA[n][l/2][k01/QI8_0];
+                            const float scaled_dot = __fmaf_rn(__int_as_float(C.x[l]), scale,
+                                __fmul_rn(-12582912.0f, scale));
+                            sum[(j0/tile_C::J + n)*tile_C::ne + l] += scaled_dot*dB[l%2];
+                        } else {
+                            const float dot = __fsub_rn(__int_as_float(C.x[l]), 12582912.0f);
+                            sum[(j0/tile_C::J + n)*tile_C::ne + l] += dot*dA[n][l/2][k01/QI8_0]*dB[l%2];
+                        }
+                    } else
+#endif
+                    {
                     sum[(j0/tile_C::J + n)*tile_C::ne + l] += C.x[l]*dA[n][l/2][k01/QI8_0]*dB[l%2];
+                    }
                 }
             }
         }
@@ -633,8 +661,13 @@ template <ggml_type type, int J, bool fallback, ggml_prec prec_src1 = GGML_PREC_
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
                     if constexpr (type == GGML_TYPE_Q3_K && J == 128 && !fallback && prec_src1 == GGML_PREC_Q8) {
                         const float c0 = __fsub_rn(__int_as_float(C[0].x[l]), 12582912.0f);
-                        const float c1 = __fsub_rn(__int_as_float(C[1].x[l]), 12582912.0f);
-                        sum[(j0/tile_C::J + n)*tile_C::ne + l] += dB[l%2]*(c0*dA[n][l/2][k01/4 + 0] + c1*dA[n][l/2][k01/4 + 1]);
+                        // Preserve the independently rounded C1 product before the C0 FMA.
+                        // Q3_K dA has at most 16 significant bits; bias*dA is exact.
+                        const float scale1 = dA[n][l/2][k01/4 + 1];
+                        const float scaled_c1 = __fmaf_rn(__int_as_float(C[1].x[l]), scale1,
+                            __fmul_rn(-12582912.0f, scale1));
+                        const float pair = __fmaf_rn(c0, dA[n][l/2][k01/4 + 0], scaled_c1);
+                        sum[(j0/tile_C::J + n)*tile_C::ne + l] += dB[l%2]*pair;
                     } else
 #endif
                     {

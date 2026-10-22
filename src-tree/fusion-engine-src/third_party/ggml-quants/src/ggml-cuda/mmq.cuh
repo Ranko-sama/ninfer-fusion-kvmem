@@ -916,7 +916,9 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
     for (int kb0 = kb0_start; kb0 < kb0_stop; kb0 += blocks_per_iter) {
         load_tiles(x, tile_x, offset_x + kb0, tile_x_max_i, stride_row_x);
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
-        if constexpr ((type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K) &&
+        if constexpr ((type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K ||
+                       type == GGML_TYPE_Q6_K || type == GGML_TYPE_Q3_K ||
+                       type == GGML_TYPE_IQ3_S) &&
                       J == 128 && !fallback && prec_src1 == GGML_PREC_Q8) {
             // Share the K128 instruction body while preserving each output's K order.
 #pragma unroll 1
