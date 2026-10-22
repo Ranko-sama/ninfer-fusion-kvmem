@@ -918,7 +918,7 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
         if constexpr ((type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K ||
                        type == GGML_TYPE_Q6_K || type == GGML_TYPE_Q3_K ||
-                       type == GGML_TYPE_IQ3_S) &&
+                       type == GGML_TYPE_IQ3_S || type == GGML_TYPE_IQ2_S) &&
                       J == 128 && !fallback && prec_src1 == GGML_PREC_Q8) {
             // Share the K128 instruction body while preserving each output's K order.
 #pragma unroll 1

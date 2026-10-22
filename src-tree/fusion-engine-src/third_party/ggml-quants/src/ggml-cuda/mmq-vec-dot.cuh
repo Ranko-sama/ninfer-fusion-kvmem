@@ -282,8 +282,8 @@ static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma(
                 for (int l = 0; l < tile_C::ne; ++l) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
                     if constexpr (exact_biased_cast) {
-                        if constexpr (type == GGML_TYPE_IQ3_XXS) {
-                            // IQ3_XXS dA has at most 16 significant bits; bias*dA is exact.
+                        if constexpr (type == GGML_TYPE_IQ3_XXS || type == GGML_TYPE_IQ4_XS) {
+                            // Finite IQ3_XXS/IQ4_XS dA has <=16 significant bits; bias*dA is exact.
                             // Fused cancellation preserves nonzero results; zero signs may differ.
                             const float scale = dA[n][l/2][k01/QI8_0];
                             const float scaled_dot = __fmaf_rn(__int_as_float(C.x[l]), scale,
@@ -643,8 +643,8 @@ template <ggml_type type, int J, bool fallback, ggml_prec prec_src1 = GGML_PREC_
             for (int n = 0; n < ntx; ++n) {
                 tile_C C[2];
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
-                if constexpr (type == GGML_TYPE_Q3_K && J == 128 && !fallback && prec_src1 == GGML_PREC_Q8) {
-                    // Each signed Q3 K16 dot is in [-8128, 8192]. Bias keeps the
+                if constexpr ((type == GGML_TYPE_Q3_K || type == GGML_TYPE_IQ2_S) && J == 128 && !fallback && prec_src1 == GGML_PREC_Q8) {
+                    // Q3 K16 dot is in [-8128, 8192]; IQ2_S is within +/-88064. Bias keeps the
                     // integer result in a float encoding with unit spacing.
 #pragma unroll
                     for (int l = 0; l < tile_C::ne; ++l) {
@@ -659,10 +659,10 @@ template <ggml_type type, int J, bool fallback, ggml_prec prec_src1 = GGML_PREC_
 #pragma unroll
                 for (int l = 0; l < tile_C::ne; ++l) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
-                    if constexpr (type == GGML_TYPE_Q3_K && J == 128 && !fallback && prec_src1 == GGML_PREC_Q8) {
+                    if constexpr ((type == GGML_TYPE_Q3_K || type == GGML_TYPE_IQ2_S) && J == 128 && !fallback && prec_src1 == GGML_PREC_Q8) {
                         const float c0 = __fsub_rn(__int_as_float(C[0].x[l]), 12582912.0f);
                         // Preserve the independently rounded C1 product before the C0 FMA.
-                        // Q3_K dA has at most 16 significant bits; bias*dA is exact.
+                        // Q3_K/IQ2_S dA has at most 16 significant bits; bias*dA is exact.
                         const float scale1 = dA[n][l/2][k01/4 + 1];
                         const float scaled_c1 = __fmaf_rn(__int_as_float(C[1].x[l]), scale1,
                             __fmul_rn(-12582912.0f, scale1));
