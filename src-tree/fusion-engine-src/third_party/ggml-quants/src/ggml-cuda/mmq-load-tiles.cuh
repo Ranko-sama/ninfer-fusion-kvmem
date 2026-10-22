@@ -1363,6 +1363,13 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
     constexpr int I           = ggml_cuda_mmq_get_I(type, J, fallback);
     constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
 
+    const uint32_t * grid = iq3s_grid;
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+    if constexpr (type == GGML_TYPE_IQ3_S && J == 128 && !fallback) {
+        grid = reinterpret_cast<const uint32_t *>(x_tile + I * sram_stride);
+    }
+#endif
+
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
@@ -1397,8 +1404,8 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
 #pragma unroll
         for (int l = 0; l < QR3_S; ++l) {
             const int2 grid_pos = make_int2(
-                iq3s_grid[qs[2*l+0] | ((qh << (8 - 2*l)) & 0x100)],
-                iq3s_grid[qs[2*l+1] | ((qh << (7 - 2*l)) & 0x100)]);
+                grid[qs[2*l+0] | ((qh << (8 - 2*l)) & 0x100)],
+                grid[qs[2*l+1] | ((qh << (7 - 2*l)) & 0x100)]);
 
             const int signs0 = __vcmpne4(((signs_packed_8[l] & 0x03) << 7) | ((signs_packed_8[l] & 0x0C) << 21), 0x00000000);
             const int signs1 = __vcmpne4(((signs_packed_8[l] & 0x30) << 3) | ((signs_packed_8[l] & 0xC0) << 17), 0x00000000);

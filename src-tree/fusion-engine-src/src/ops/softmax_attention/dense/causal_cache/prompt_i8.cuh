@@ -81,12 +81,27 @@
 #endif
 
 #ifndef NINFER_PROMPT_I8_MAXNREG
+#if defined(NINFER_SM75)
+// The 512-thread CTA already uses more than half of SM75's shared memory. At 128
+// registers per thread it still fits one CTA, with room to retain spilled addresses.
+#define NINFER_PROMPT_I8_MAXNREG 128
+#else
 #define NINFER_PROMPT_I8_MAXNREG 120
+#endif
 #endif
 
 namespace ninfer::ops {
 
 #if defined(NINFER_SM75)
+__device__ __forceinline__ void causal_prompt_i8_pv_lower_v_from_upper(
+    unsigned& r0, unsigned& r1, unsigned upper_addr) {
+    // D256 rows separated by 16 have the same swizzle; fold the 8192-byte
+    // displacement into the load instead of keeping a second address live.
+    asm volatile("ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 {%0,%1}, [%2+-8192];"
+                 : "=r"(r0), "=r"(r1)
+                 : "r"(upper_addr));
+}
+
 // Keep 64 query rows: reducing the key tile alone fits Turing's 64 KiB arena
 // and reuses each staged K/V tile across twice as many queries as a 32-row CTA.
 inline constexpr int kCausalPromptI8Warps      = 16;
@@ -185,7 +200,15 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
     constexpr int QKNt          = Bc / 8;
     constexpr int PVNtPerWarp   = D / (kCausalPromptI8DConsumers * 8);
     constexpr int PVKs          = Bc / 16;
-    constexpr int ProducerWarps = kCausalPromptI8RowTiles;
+#if defined(NINFER_SM75)
+    constexpr bool EightRowQK = Geometry::QHeads == 24 && Geometry::KVHeads == 4 && D == 256 &&
+                                Br == 64 && Bc == 32 && PackedValues &&
+                                Keys == KvKeyCoding::Int8 && PvF16 && !PackGqa;
+#else
+    constexpr bool EightRowQK = false;
+#endif
+    constexpr int QKRows        = EightRowQK ? 8 : 16;
+    constexpr int ProducerWarps = Br / QKRows;
     constexpr int VWorkerWarps  = kCausalPromptI8Warps - ProducerWarps;
     constexpr int WorkerThreads = VWorkerWarps * 32;
     constexpr float Log2E       = 1.4426950408889634074f;
@@ -494,12 +517,14 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
     float q_scale_r0[Groups - 2];
     float q_scale_r1[Groups - 2];
     if (warp < ProducerWarps) {
-        const int scale_row0 = warp * 16 + gid;
+        const int scale_row0 = warp * QKRows + gid;
         const int scale_row1 = scale_row0 + 8;
 #pragma unroll
         for (int grp = 0; grp < Groups - 2; ++grp) {
             q_scale_r0[grp] = q_scale[scale_row0 * Groups + grp];
-            q_scale_r1[grp] = q_scale[scale_row1 * Groups + grp];
+            if constexpr (!EightRowQK) {
+                q_scale_r1[grp] = q_scale[scale_row1 * Groups + grp];
+            }
         }
     }
 
@@ -521,7 +546,7 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
             if (has_next) { fetch_next_kv_tile((kb + 1) * Bc); }
         }
         if (warp < ProducerWarps) {
-            const int row_base = warp * 16;
+            const int row_base = warp * QKRows;
             float score[QKNt][4];
 #pragma unroll
             for (int nt = 0; nt < QKNt; ++nt) {
@@ -531,25 +556,34 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
 #pragma unroll
             for (int grp = 0; grp < Groups; ++grp) {
                 float qs0;
-                float qs1;
+                float qs1 = 0.0f;
                 if (grp < Groups - 2) {
                     qs0 = q_scale_r0[grp];
-                    qs1 = q_scale_r1[grp];
+                    if constexpr (!EightRowQK) { qs1 = q_scale_r1[grp]; }
                 } else {
                     const int scale_row0 = row_base + gid;
                     const int scale_row1 = scale_row0 + 8;
                     qs0                  = q_scale[scale_row0 * Groups + grp];
-                    qs1                  = q_scale[scale_row1 * Groups + grp];
+                    if constexpr (!EightRowQK) {
+                        qs1 = q_scale[scale_row1 * Groups + grp];
+                    }
                 }
 
                 unsigned af[GroupKc][4];
 #pragma unroll
                 for (int kk = 0; kk < GroupKc; ++kk) {
                     const int k    = grp * GroupKc + kk;
-                    const int acol = k * 16 + a_coloff;
-                    ldmatrix_x4(af[kk][0], af[kk][1], af[kk][2], af[kk][3],
-                                smem_addr(&q_b16[(row_base + a_rowoff) * DB16 +
-                                                 causal_prompt_swz(row_base + a_rowoff, acol)]));
+                    if constexpr (EightRowQK) {
+                        const int acol = k * 16 + b_koff;
+                        ldmatrix_x2(af[kk][0], af[kk][1],
+                                    smem_addr(&q_b16[(row_base + a_rin) * DB16 +
+                                                     causal_prompt_swz(row_base + a_rin, acol)]));
+                    } else {
+                        const int acol = k * 16 + a_coloff;
+                        ldmatrix_x4(af[kk][0], af[kk][1], af[kk][2], af[kk][3],
+                                    smem_addr(&q_b16[(row_base + a_rowoff) * DB16 +
+                                                     causal_prompt_swz(row_base + a_rowoff, acol)]));
+                    }
                 }
 
 #pragma unroll
@@ -563,8 +597,16 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
                         unsigned bf[2];
                         ldmatrix_x2(bf[0], bf[1],
                                     smem_addr(&k_b16[brow * DB16 + causal_prompt_swz(brow, bcol)]));
-                        mma_s8(c0, c1, c2, c3, af[kk][0], af[kk][1], af[kk][2], af[kk][3], bf[0],
-                               bf[1]);
+#if defined(NINFER_SM75)
+                        if constexpr (EightRowQK) {
+                            mma_s8_m8n8k16(c0, c1, af[kk][0], bf[0]);
+                            mma_s8_m8n8k16(c0, c1, af[kk][1], bf[1]);
+                        } else
+#endif
+                        {
+                            mma_s8(c0, c1, c2, c3, af[kk][0], af[kk][1], af[kk][2], af[kk][3],
+                                   bf[0], bf[1]);
+                        }
                     }
                     // The eight lanes sharing a lid read one address: a shared-memory broadcast,
                     // where a shuffle from a computed lane costs an out-of-line call.
@@ -574,8 +616,10 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
                     const float ks1 = __half2float(k_scale_s[keyb * Groups + grp]);
                     score[nt][0] = __fmaf_rn(qs0 * ks0, static_cast<float>(c0), score[nt][0]);
                     score[nt][1] = __fmaf_rn(qs0 * ks1, static_cast<float>(c1), score[nt][1]);
-                    score[nt][2] = __fmaf_rn(qs1 * ks0, static_cast<float>(c2), score[nt][2]);
-                    score[nt][3] = __fmaf_rn(qs1 * ks1, static_cast<float>(c3), score[nt][3]);
+                    if constexpr (!EightRowQK) {
+                        score[nt][2] = __fmaf_rn(qs1 * ks0, static_cast<float>(c2), score[nt][2]);
+                        score[nt][3] = __fmaf_rn(qs1 * ks1, static_cast<float>(c3), score[nt][3]);
+                    }
                 }
             }
 
@@ -605,31 +649,38 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
                         (key1 <= qabs0 && paged_kv_block_selected(metadata.selected_blocks, key1))
                             ? score[nt][1]
                             : -CUDART_INF_F;
-                    score[nt][2] =
-                        (key0 <= qabs1 && paged_kv_block_selected(metadata.selected_blocks, key0))
-                            ? score[nt][2]
-                            : -CUDART_INF_F;
-                    score[nt][3] =
-                        (key1 <= qabs1 && paged_kv_block_selected(metadata.selected_blocks, key1))
-                            ? score[nt][3]
-                            : -CUDART_INF_F;
+                    if constexpr (!EightRowQK) {
+                        score[nt][2] =
+                            (key0 <= qabs1 && paged_kv_block_selected(metadata.selected_blocks, key0))
+                                ? score[nt][2]
+                                : -CUDART_INF_F;
+                        score[nt][3] =
+                            (key1 <= qabs1 && paged_kv_block_selected(metadata.selected_blocks, key1))
+                                ? score[nt][3]
+                                : -CUDART_INF_F;
+                    }
                 }
                 bm0 = fmaxf(bm0, fmaxf(score[nt][0], score[nt][1]));
-                bm1 = fmaxf(bm1, fmaxf(score[nt][2], score[nt][3]));
+                if constexpr (!EightRowQK) {
+                    bm1 = fmaxf(bm1, fmaxf(score[nt][2], score[nt][3]));
+                }
             }
             bm0 = warp_max<4>(bm0, FullMask);
-            bm1 = warp_max<4>(bm1, FullMask);
+            if constexpr (!EightRowQK) { bm1 = warp_max<4>(bm1, FullMask); }
 
             const float nm0        = fmaxf(running_m0, bm0);
-            const float nm1        = fmaxf(running_m1, bm1);
             const float nm0_scaled = nm0 * scale_l2;
-            const float nm1_scaled = nm1 * scale_l2;
             const float alpha0     = running_m0 == -CUDART_INF_F
                                          ? 0.0f
                                          : exp2_approx(__fmaf_rn(running_m0, scale_l2, -nm0_scaled));
-            const float alpha1     = running_m1 == -CUDART_INF_F
-                                         ? 0.0f
-                                         : exp2_approx(__fmaf_rn(running_m1, scale_l2, -nm1_scaled));
+            float nm1 = 0.0f, nm1_scaled = 0.0f, alpha1 = 0.0f;
+            if constexpr (!EightRowQK) {
+                nm1 = fmaxf(running_m1, bm1);
+                nm1_scaled = nm1 * scale_l2;
+                alpha1 = running_m1 == -CUDART_INF_F
+                             ? 0.0f
+                             : exp2_approx(__fmaf_rn(running_m1, scale_l2, -nm1_scaled));
+            }
             float bl0              = 0.0f;
             float bl1              = 0.0f;
 #pragma unroll
@@ -642,34 +693,38 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
                 const float p01 = score[nt][1] > -CUDART_INF_F
                                       ? exp2_approx(__fmaf_rn(score[nt][1], scale_l2, -nm0_scaled))
                                       : 0.0f;
-                const float p10 = score[nt][2] > -CUDART_INF_F
-                                      ? exp2_approx(__fmaf_rn(score[nt][2], scale_l2, -nm1_scaled))
-                                      : 0.0f;
-                const float p11 = score[nt][3] > -CUDART_INF_F
-                                      ? exp2_approx(__fmaf_rn(score[nt][3], scale_l2, -nm1_scaled))
-                                      : 0.0f;
                 // Quantise before the sum as well as before the store, so the denominator matches
                 // what the PV matmul will actually accumulate.
                 const float q00 = NINFER_QUANTISE_P(p00);
                 const float q01 = NINFER_QUANTISE_P(p01);
-                const float q10 = NINFER_QUANTISE_P(p10);
-                const float q11 = NINFER_QUANTISE_P(p11);
                 bl0 += q00 + q01;
-                bl1 += q10 + q11;
                 p_s[row0 * Bc + causal_prompt_p_swz<Bc>(row0, col0)] = __float2half_rn(q00);
                 p_s[row0 * Bc + causal_prompt_p_swz<Bc>(row0, col1)] = __float2half_rn(q01);
-                p_s[row1 * Bc + causal_prompt_p_swz<Bc>(row1, col0)] = __float2half_rn(q10);
-                p_s[row1 * Bc + causal_prompt_p_swz<Bc>(row1, col1)] = __float2half_rn(q11);
+                if constexpr (!EightRowQK) {
+                    const float p10 = score[nt][2] > -CUDART_INF_F
+                                          ? exp2_approx(__fmaf_rn(score[nt][2], scale_l2, -nm1_scaled))
+                                          : 0.0f;
+                    const float p11 = score[nt][3] > -CUDART_INF_F
+                                          ? exp2_approx(__fmaf_rn(score[nt][3], scale_l2, -nm1_scaled))
+                                          : 0.0f;
+                    const float q10 = NINFER_QUANTISE_P(p10);
+                    const float q11 = NINFER_QUANTISE_P(p11);
+                    bl1 += q10 + q11;
+                    p_s[row1 * Bc + causal_prompt_p_swz<Bc>(row1, col0)] = __float2half_rn(q10);
+                    p_s[row1 * Bc + causal_prompt_p_swz<Bc>(row1, col1)] = __float2half_rn(q11);
+                }
             }
             bl0        = warp_sum<4>(bl0, FullMask);
-            bl1        = warp_sum<4>(bl1, FullMask);
             running_l0 = __fmaf_rn(running_l0, alpha0, bl0);
-            running_l1 = __fmaf_rn(running_l1, alpha1, bl1);
             running_m0 = nm0;
-            running_m1 = nm1;
+            if constexpr (!EightRowQK) {
+                bl1 = warp_sum<4>(bl1, FullMask);
+                running_l1 = __fmaf_rn(running_l1, alpha1, bl1);
+                running_m1 = nm1;
+            }
             if (lid == 0) {
                 alpha_s[row0] = alpha0;
-                alpha_s[row1] = alpha1;
+                if constexpr (!EightRowQK) { alpha_s[row1] = alpha1; }
             }
         } else if (warp < ProducerWarps + VWorkerWarps) {
             const int worker_tid = tid - ProducerWarps * 32;
@@ -747,10 +802,26 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
             for (int n = 0; n < PVNtPerWarp; ++n) {
                 const int global_n = d_slice * PVNtPerWarp + n;
                 unsigned vf[2];
-                const int vrow = k * 16 + b_koff + b_rin;
                 const int vcol = global_n * 8;
-                ldmatrix_x2_t(vf[0], vf[1],
-                              smem_addr(&v_f16[vrow * D + causal_prompt_swz(vrow, vcol)]));
+#if defined(NINFER_SM75)
+                if constexpr (Geometry::QHeads == 24 && Geometry::KVHeads == 4 && D == 256 &&
+                              Bc == 32 && PackedValues && Keys == KvKeyCoding::Int8 && PvF16 &&
+                              !PackGqa) {
+                    const int upper_row = 16 + b_koff + b_rin;
+                    const unsigned upper_addr =
+                        smem_addr(&v_f16[upper_row * D + causal_prompt_swz(upper_row, vcol)]);
+                    if (k == 0) {
+                        causal_prompt_i8_pv_lower_v_from_upper(vf[0], vf[1], upper_addr);
+                    } else {
+                        ldmatrix_x2_t(vf[0], vf[1], upper_addr);
+                    }
+                } else
+#endif
+                {
+                    const int vrow = k * 16 + b_koff + b_rin;
+                    ldmatrix_x2_t(vf[0], vf[1],
+                                  smem_addr(&v_f16[vrow * D + causal_prompt_swz(vrow, vcol)]));
+                }
 #if NINFER_PROMPT_I8_ABLATE == 0
                 if constexpr (PvF16) {
                     mma_f16_f16acc(tile_acc[n][0], tile_acc[n][1], pf[0], pf[1], pf[2], pf[3],
@@ -784,10 +855,10 @@ __global__ __maxnreg__(NINFER_PROMPT_I8_MAXNREG) void causal_attention_prompt_i8
     }
 
     if (warp < ProducerWarps && lid == 0) {
-        const int row0  = warp * 16 + gid;
+        const int row0  = warp * QKRows + gid;
         const int row1  = row0 + 8;
         final_l_s[row0] = running_l0;
-        final_l_s[row1] = running_l1;
+        if constexpr (!EightRowQK) { final_l_s[row1] = running_l1; }
     }
     __syncthreads();
 

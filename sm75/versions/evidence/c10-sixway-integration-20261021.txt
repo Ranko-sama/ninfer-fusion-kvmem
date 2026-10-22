@@ -1,0 +1,29 @@
+旧 C10 与当前五项组合：有限工程保留
+
+结果：原冻结 C10 已恢复，源码及本轮隔离构建保留。Astra Max 在恢复/构建、请求发车及最终结果节点独立审查，均 GO。
+新增源码仅 startup.cpp 的原 Prefill 输出头预算 hunk；当前五项、撤回的 minMMA 状态及用户原有改动保持不变。
+构建：沿用已核实的 SM75=75 / CUDA12.8 / MSVC 环境，通过 tools/sm75/build.ps1 实际重新编译 startup.cpp 并链接 ninfer-serve；build.log / build.exit.txt 可核对。
+
+预算：Q2 一次、Q3 一次，共 2/2；无重试、无补发、无请求时间限制，原请求 max_tokens=4096 保持。
+两次实际输入与 computed_prefill 均 31137 tokens，cache=0；HTTP200，stop_token 正常完成，均有最终回答；无 workspace/分配/CUDA/运行错误。
+
+Q2：workspace 从历史五项的 373.879883 MiB 缩至 84.010986 MiB，减少 289.868896 MiB；MTP 635 轮，输出 2134 tokens。
+Q3：workspace 从历史五项的 373.879883 MiB 缩至 79.757080 MiB，减少 294.122803 MiB；MTP 490 轮，输出 1675 tokens。
+容量来自实际 workspace_storage 分配，非仅修改规划统计。两模型 engine、sampling defaults、weights、sequence、KV 容量均与原五项记录相同。
+
+单次时间只作记录：
+Q2 prefill 38.0291523 s；服务端 TTFT 38.0678075 s。
+Q3 prefill 39.5589167 s；服务端 TTFT 39.5975040 s。
+本轮无同期五项对照，不估计 C10 边际延迟、TPS 或新的提速百分比，也不能重新证明其代价仍为约 0.2 秒。
+
+本次 startup CUDA free：Q2 4418.668 MiB，Q3 1191.355 MiB；历史五项 B1 分别 4694.461 / 973.836 MiB。
+桌面占用与时间批次不同，以上差值不能归因于 C10。确认的是实际建立的 workspace 分配容量减少，不能声称本批整卡净 free 或物理驻留回收同量增加。
+1Hz 只读 GPU CSV 保留，完整行覆盖两次请求结束；尾端截断行不用于统计。
+
+回答观察：Q2 三项核心结论已回答，但把预留减一解释为 prefill 已发首 token 缺少题内源码因果支持；Q3 三项核心结论已回答，但公式省略零输出分支。
+这些单次回答不证明 C10 导致能力回归，本轮也不提供完整质量 PASS。既有 IQ3/Q45 质量充分性缺口与历史 C10 TPS 归因疑点保留。
+
+交付：源代码 + c10-sixway-integration-20261021/ninfer-serve-sixway.exe 隔离构建。
+日常 BAT、device-profiles 和发布包未修改，日常启动入口仍指向原发布程序；未提交或推送。
+所有本任务模型服务与 GPU 监控已停止，final-cleanup.json 记录为 0 遗留。
+无 GPU/驱动/Afterburner 设置改动。任务结束，不再追加请求、实现变体或修正。

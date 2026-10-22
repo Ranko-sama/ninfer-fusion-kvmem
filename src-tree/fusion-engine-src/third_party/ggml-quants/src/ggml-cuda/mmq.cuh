@@ -774,13 +774,13 @@ static constexpr __device__ ggml_cuda_mmq_util_funcs ggml_cuda_mmq_get_util_func
             return ggml_cuda_mmq_util_funcs(
                 -1,
                 ggml_cuda_mmq_load_tiles_q4_K<type, J, fallback>,
-                ggml_cuda_mmq_vec_dot_q8_1_q8_1_mma<type, J, fallback>,
+                ggml_cuda_mmq_vec_dot_q8_1_q8_1_mma<type, J, fallback, prec_src1>,
                 ggml_cuda_mmq_write_back_mma<type, J, fallback>);
         case GGML_TYPE_Q5_K:
             return ggml_cuda_mmq_util_funcs(
                 -1,
                 ggml_cuda_mmq_load_tiles_q5_K<type, J, fallback>,
-                ggml_cuda_mmq_vec_dot_q8_1_q8_1_mma<type, J, fallback>,
+                ggml_cuda_mmq_vec_dot_q8_1_q8_1_mma<type, J, fallback, prec_src1>,
                 ggml_cuda_mmq_write_back_mma<type, J, fallback>);
         case GGML_TYPE_Q6_K:
             return ggml_cuda_mmq_util_funcs(
@@ -915,6 +915,25 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
 
     for (int kb0 = kb0_start; kb0 < kb0_stop; kb0 += blocks_per_iter) {
         load_tiles(x, tile_x, offset_x + kb0, tile_x_max_i, stride_row_x);
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+        if constexpr ((type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K) &&
+                      J == 128 && !fallback && prec_src1 == GGML_PREC_Q8) {
+            // Share the K128 instruction body while preserving each output's K order.
+#pragma unroll 1
+            for (int half = 0; half < 2; ++half) {
+                const int * by0 = y + ncols_y * ((kb0 * qk / ne_block + half) * sz);
+#pragma unroll
+                for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += nwarps * warp_size) {
+                    const int l = l0 + threadIdx.y * warp_size + threadIdx.x;
+                    tile_y[l] = by0[l];
+                }
+                __syncthreads();
+                vec_dot(tile_x, tile_y, sum, half * MMQ_TILE_NE_K);
+                __syncthreads();
+            }
+            continue;
+        }
+#endif
         {
             const int * by0 = y + ncols_y * (kb0 * qk / ne_block) * sz;
 #pragma unroll
@@ -996,6 +1015,19 @@ static __global__ void mul_mat_q(
 
         ids_dst_shared[j] = j;
     }
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+    if constexpr (type == GGML_TYPE_IQ3_S && J == 128 && !fallback) {
+        // Keep the immutable lookup table after the existing ids, Y and X tiles.
+        constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
+        auto * codebook = reinterpret_cast<uint32_t *>(ids_dst_shared + J +
+            GGML_PAD(J * MMQ_TILE_Y_K, nwarps * warp_size) + I * sram_stride);
+#pragma unroll
+        for (int index = threadIdx.y * warp_size + threadIdx.x;
+             index < 512; index += nwarps * warp_size) {
+            codebook[index] = iq3s_grid[index];
+        }
+    }
+#endif
     __syncthreads();
 
     if constexpr (!ggml_cuda_mmq_get_stream_k(type, J, fallback, prec_src1)) {
@@ -1397,7 +1429,9 @@ static size_t mmq_get_nbytes_shared(const ggml_cuda_mmq_config & config, const i
     const size_t nbs_ids = config.J*sizeof(int);
     const size_t nbs_x = ggml_cuda_mmq_get_nbytes_shared_x(config, cc);
     const size_t nbs_y = config.J * (sizeof(block_q8_1_mmq));
-    return nbs_ids + nbs_x + GGML_PAD(nbs_y, config.nthreads*sizeof(int));
+    const size_t nbs_codebook = cc == 750 && config.type == GGML_TYPE_IQ3_S &&
+        config.J == 128 && !config.fallback ? 512 * sizeof(uint32_t) : 0;
+    return nbs_ids + nbs_x + GGML_PAD(nbs_y, config.nthreads*sizeof(int)) + nbs_codebook;
 }
 
 template <ggml_type type, int J, bool fallback, ggml_prec prec_src1 = GGML_PREC_Q8>

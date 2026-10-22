@@ -1,0 +1,22 @@
+{
+  "version": "sm75-six-20261022",
+  "original_base_commit": "349ad64f9c766d364161c6dee8a22163471a4435",
+  "production_sources": {
+    "src-tree/fusion-engine-src/src/models/qwen3_5/program/planning/startup.cpp": "build-sm75-run-20261016/restore-fourteen-20261022/before/src-tree/fusion-engine-src/src/models/qwen3_5/program/planning/startup.cpp",
+    "src-tree/fusion-engine-src/src/ops/softmax_attention/dense/causal_cache/prompt_i8.cuh": "build-sm75-run-20261016/restore-fourteen-20261022/before/src-tree/fusion-engine-src/src/ops/softmax_attention/dense/causal_cache/prompt_i8.cuh",
+    "src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq-load-tiles.cuh": "build-sm75-run-20261016/restore-fourteen-20261022/before/src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq-load-tiles.cuh",
+    "src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq-vec-dot.cuh": "build-sm75-run-20261016/restore-fourteen-20261022/before/src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq-vec-dot.cuh",
+    "src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq.cuh": "build-sm75-run-20261016/restore-fourteen-20261022/before/src-tree/fusion-engine-src/third_party/ggml-quants/src/ggml-cuda/mmq.cuh"
+  },
+  "historical_reports": [
+    "build-sm75-run-20261016/overnight-20261020/REPORT.txt",
+    "build-sm75-run-20261016/c10-sixway-integration-20261021/REPORT.txt"
+  ],
+  "publication_validation": {
+    "kind": "static source/provenance review only",
+    "builds": 0,
+    "numerical_runs": 0,
+    "real_requests": 0
+  },
+  "excluded": "Existing unrelated working-tree edits, local launchers, binary packages, model weights, private issue notes and raw request payloads are not included."
+}

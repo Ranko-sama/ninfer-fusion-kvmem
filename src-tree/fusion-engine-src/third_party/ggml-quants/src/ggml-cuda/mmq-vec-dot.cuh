@@ -310,7 +310,7 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
     }
 }
 
-template <ggml_type type, int J, bool fallback> static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_1_q8_1_mma(
+template <ggml_type type, int J, bool fallback, ggml_prec prec_src1 = GGML_PREC_Q8> static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_1_q8_1_mma(
         const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
 #if defined(AMD_MFMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     constexpr data_layout input_layout = get_input_data_layout();
@@ -425,11 +425,34 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
 #pragma unroll
             for (int n = 0; n < ntx; ++n) {
                 tile_C C;
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+                constexpr auto cast_config = ggml_cuda_mmq_get_config(type, J, fallback, prec_src1);
+                constexpr bool exact_biased_cast =
+                    (type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K) &&
+                    J == 128 && !fallback && prec_src1 == GGML_PREC_Q8 &&
+                    cast_config.I == 128 && cast_config.nthreads == 256 &&
+                    cast_config.K_vram == QK_K &&
+                    cast_config.sram_layout == GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1;
+                if constexpr (exact_biased_cast) {
+                    // One original K32 dot: Q4 in [-61440, 60960], Q5 in [-126976, 125984].
+                    // The encoded float has unit spacing over both ranges.
+#pragma unroll
+                    for (int l = 0; l < tile_C::ne; ++l) { C.x[l] = 0x4B400000; }
+                }
+#endif
                 mma(C, A[n][k01/QI8_1], B);
 
 #pragma unroll
                 for (int l = 0; l < tile_C::ne; ++l) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+                    if constexpr (exact_biased_cast) {
+                        const float dot = __fsub_rn(__int_as_float(C.x[l]), 12582912.0f);
+                        sum[(j0/tile_C::J + n)*tile_C::ne + l] += dmA[n][l/2][k01/QI8_1].x*dsB[l%2].x*dot;
+                    } else
+#endif
+                    {
                     sum[(j0/tile_C::J + n)*tile_C::ne + l] += dmA[n][l/2][k01/QI8_1].x*dsB[l%2].x*C.x[l];
+                    }
                     sum[(j0/tile_C::J + n)*tile_C::ne + l] += dmA[n][l/2][k01/QI8_1].y*dsB[l%2].y;
                 }
             }
@@ -591,12 +614,32 @@ template <ggml_type type, int J, bool fallback, ggml_prec prec_src1 = GGML_PREC_
 #pragma unroll
             for (int n = 0; n < ntx; ++n) {
                 tile_C C[2];
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+                if constexpr (type == GGML_TYPE_Q3_K && J == 128 && !fallback && prec_src1 == GGML_PREC_Q8) {
+                    // Each signed Q3 K16 dot is in [-8128, 8192]. Bias keeps the
+                    // integer result in a float encoding with unit spacing.
+#pragma unroll
+                    for (int l = 0; l < tile_C::ne; ++l) {
+                        C[0].x[l] = 0x4B400000;
+                        C[1].x[l] = 0x4B400000;
+                    }
+                }
+#endif
                 mma(C[0], A[n][k01/4 + 0], B[0]);
                 mma(C[1], A[n][k01/4 + 1], B[1]);
 
 #pragma unroll
                 for (int l = 0; l < tile_C::ne; ++l) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+                    if constexpr (type == GGML_TYPE_Q3_K && J == 128 && !fallback && prec_src1 == GGML_PREC_Q8) {
+                        const float c0 = __fsub_rn(__int_as_float(C[0].x[l]), 12582912.0f);
+                        const float c1 = __fsub_rn(__int_as_float(C[1].x[l]), 12582912.0f);
+                        sum[(j0/tile_C::J + n)*tile_C::ne + l] += dB[l%2]*(c0*dA[n][l/2][k01/4 + 0] + c1*dA[n][l/2][k01/4 + 1]);
+                    } else
+#endif
+                    {
                     sum[(j0/tile_C::J + n)*tile_C::ne + l] += dB[l%2]*(C[0].x[l]*dA[n][l/2][k01/4 + 0] + C[1].x[l]*dA[n][l/2][k01/4 + 1]);
+                    }
                 }
             }
         }

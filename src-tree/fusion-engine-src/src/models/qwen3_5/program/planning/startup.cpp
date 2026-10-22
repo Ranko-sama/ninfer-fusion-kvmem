@@ -570,7 +570,10 @@ WorkspacePlan build_workspace_plan(const SequencePlanImpl& plan) {
                                                    phase == TextPhase::Verify, wide_verification));
         }
         if (!plan.causal_scoring) {
-            linear_scratch(layout, parameters.text.output_head, first, last);
+            // Generation prefill projects only the final hidden column.
+            const bool prefill = phase == TextPhase::Prefill;
+            linear_scratch(layout, parameters.text.output_head, prefill ? 1 : first,
+                           prefill ? 1 : last);
         }
     };
     const auto mtp_post_mixer = [&](WorkspaceLayoutBuilder& layout, int first, int last) {
